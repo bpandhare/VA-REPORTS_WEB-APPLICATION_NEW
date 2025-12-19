@@ -211,6 +211,14 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }))
 
+// CORS configuration - SIMPLE VERSION FOR LOCAL TESTING
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+}))
+
 // Rate limiting for API
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -222,37 +230,6 @@ const limiter = rateLimit({
 
 // Apply rate limiting to API routes
 app.use('/api', limiter)
-
-// CORS configuration - dynamically allow origins
-const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [
-      'https://vaweb.onrender.com',
-      'https://va-report-frontend.onrender.com', // Your frontend URL
-      'https://yourdomain.com', // Add your custom domain if any
-    ]
-  : [
-      'http://localhost:5173',
-      'http://localhost:3000',
-    ]
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true)
-      
-      if (allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true)
-      } else {
-        console.log('Blocked by CORS:', origin)
-        callback(new Error('Not allowed by CORS'), false)
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  })
-)
 
 // Compression middleware for production
 if (process.env.NODE_ENV === 'production') {
@@ -298,7 +275,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // 404 handler for API routes
-app.use('/api/*', (req, res) => {
+app.use('/api', (req, res) => {
   res.status(404).json({ 
     message: 'API endpoint not found',
     path: req.originalUrl,

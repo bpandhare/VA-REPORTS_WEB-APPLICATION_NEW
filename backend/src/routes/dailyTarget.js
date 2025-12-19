@@ -59,6 +59,133 @@ const upload = multer({
   },
 })
 
+// ==================== GET ENDPOINTS ====================
+
+// GET all daily targets for the logged-in user
+router.get('/', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id
+    
+    const [rows] = await pool.execute(
+      `SELECT id, report_date, in_time, out_time, customer_name, customer_person, 
+       customer_contact, end_customer_name, end_customer_person, end_customer_contact,
+       project_no, location_type, site_location, location_lat, location_lng,
+       mom_report_path, daily_target_planned, daily_target_achieved,
+       additional_activity, who_added_activity, daily_pending_target,
+       reason_pending_target, problem_faced, problem_resolved,
+       online_support_required, support_engineer_name,
+       site_start_date, site_end_date, incharge, remark,
+       created_at, updated_at
+       FROM daily_target_reports 
+       WHERE user_id = ?
+       ORDER BY report_date DESC, created_at DESC`,
+      [userId]
+    )
+    
+    res.json(rows)
+  } catch (error) {
+    console.error('Failed to fetch daily targets:', error)
+    res.status(500).json({ message: 'Unable to fetch daily targets' })
+  }
+})
+
+// GET daily target by ID
+router.get('/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params
+    const userId = req.user.id
+    
+    const [rows] = await pool.execute(
+      `SELECT id, report_date, in_time, out_time, customer_name, customer_person, 
+       customer_contact, end_customer_name, end_customer_person, end_customer_contact,
+       project_no, location_type, site_location, location_lat, location_lng,
+       mom_report_path, daily_target_planned, daily_target_achieved,
+       additional_activity, who_added_activity, daily_pending_target,
+       reason_pending_target, problem_faced, problem_resolved,
+       online_support_required, support_engineer_name,
+       site_start_date, site_end_date, incharge, remark,
+       created_at, updated_at
+       FROM daily_target_reports 
+       WHERE id = ? AND user_id = ?`,
+      [id, userId]
+    )
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Daily target not found' })
+    }
+    
+    res.json(rows[0])
+  } catch (error) {
+    console.error('Failed to fetch daily target:', error)
+    res.status(500).json({ message: 'Unable to fetch daily target' })
+  }
+})
+
+// GET daily targets by date range
+router.get('/by-date/:startDate/:endDate', verifyToken, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.params
+    const userId = req.user.id
+    
+    const [rows] = await pool.execute(
+      `SELECT id, report_date, in_time, out_time, customer_name, customer_person, 
+       customer_contact, end_customer_name, end_customer_person, end_customer_contact,
+       project_no, location_type, site_location, location_lat, location_lng,
+       mom_report_path, daily_target_planned, daily_target_achieved,
+       additional_activity, who_added_activity, daily_pending_target,
+       reason_pending_target, problem_faced, problem_resolved,
+       online_support_required, support_engineer_name,
+       site_start_date, site_end_date, incharge, remark,
+       created_at, updated_at
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date BETWEEN ? AND ?
+       ORDER BY report_date DESC`,
+      [userId, startDate, endDate]
+    )
+    
+    res.json(rows)
+  } catch (error) {
+    console.error('Failed to fetch daily targets by date range:', error)
+    res.status(500).json({ message: 'Unable to fetch daily targets' })
+  }
+})
+
+// GET today's daily target
+router.get('/today', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id
+    const today = new Date().toISOString().slice(0, 10)
+    
+    const [rows] = await pool.execute(
+      `SELECT id, report_date, in_time, out_time, customer_name, customer_person, 
+       customer_contact, end_customer_name, end_customer_person, end_customer_contact,
+       project_no, location_type, site_location, location_lat, location_lng,
+       mom_report_path, daily_target_planned, daily_target_achieved,
+       additional_activity, who_added_activity, daily_pending_target,
+       reason_pending_target, problem_faced, problem_resolved,
+       online_support_required, support_engineer_name,
+       site_start_date, site_end_date, incharge, remark,
+       created_at, updated_at
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, today]
+    )
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'No daily target found for today' })
+    }
+    
+    res.json(rows[0])
+  } catch (error) {
+    console.error('Failed to fetch today\'s daily target:', error)
+    res.status(500).json({ message: 'Unable to fetch daily target' })
+  }
+})
+
+// ==================== POST ENDPOINT ====================
+
 router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
   try {
     const userId = req.user.id
@@ -239,10 +366,13 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
   }
 })
 
-// PUT endpoint for updating existing reports
-router.put('/:id', upload.single('momReport'), async (req, res) => {
+// ==================== PUT ENDPOINT ====================
+
+router.put('/:id', verifyToken, upload.single('momReport'), async (req, res) => {
   try {
     const { id } = req.params
+    const userId = req.user.id
+    
     const {
       reportDate,
       inTime,
@@ -343,17 +473,18 @@ router.put('/:id', upload.single('momReport'), async (req, res) => {
       })
     }
 
-    // Get PDF file path if uploaded, or keep existing
-    let momReportPath = req.file ? req.file.path : null
-
-    // If no new file uploaded, get the existing file path
-    if (!req.file) {
-      const [existing] = await pool.execute(
-        'SELECT mom_report_path FROM daily_target_reports WHERE id = ?',
-        [id]
-      )
-      momReportPath = existing.length > 0 ? existing[0].mom_report_path : null
+    // Check if the report belongs to the user
+    const [existing] = await pool.execute(
+      'SELECT id, mom_report_path FROM daily_target_reports WHERE id = ? AND user_id = ?',
+      [id, userId]
+    )
+    
+    if (existing.length === 0) {
+      return res.status(404).json({ message: 'Report not found or access denied' })
     }
+
+    // Get PDF file path if uploaded, or keep existing
+    let momReportPath = req.file ? req.file.path : existing[0].mom_report_path
 
     // Update database
     const [result] = await pool.execute(
@@ -366,7 +497,7 @@ router.put('/:id', upload.single('momReport'), async (req, res) => {
        reason_pending_target = ?, problem_faced = ?, problem_resolved = ?,
        online_support_required = ?, support_engineer_name = ?,
        site_start_date = ?, site_end_date = ?, incharge = ?, remark = ?
-       WHERE id = ?`,
+       WHERE id = ? AND user_id = ?`,
       [
         finalReportDate,
         finalInTime,
@@ -398,6 +529,7 @@ router.put('/:id', upload.single('momReport'), async (req, res) => {
         finalIncharge,
         remark || null,
         id,
+        userId
       ]
     )
 
@@ -420,6 +552,46 @@ router.put('/:id', upload.single('momReport'), async (req, res) => {
     }
     console.error('Failed to update daily target report', error)
     res.status(500).json({ message: 'Unable to update daily target report' })
+  }
+})
+
+// ==================== DELETE ENDPOINT ====================
+
+router.delete('/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params
+    const userId = req.user.id
+    
+    // First, get the file path to delete the PDF
+    const [rows] = await pool.execute(
+      'SELECT mom_report_path FROM daily_target_reports WHERE id = ? AND user_id = ?',
+      [id, userId]
+    )
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Report not found or access denied' })
+    }
+    
+    // Delete PDF file if exists
+    const filePath = rows[0].mom_report_path
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+    }
+    
+    // Delete from database
+    const [result] = await pool.execute(
+      'DELETE FROM daily_target_reports WHERE id = ? AND user_id = ?',
+      [id, userId]
+    )
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Report not found' })
+    }
+    
+    res.json({ message: 'Daily target report deleted successfully' })
+  } catch (error) {
+    console.error('Failed to delete daily target report:', error)
+    res.status(500).json({ message: 'Unable to delete daily target report' })
   }
 })
 
