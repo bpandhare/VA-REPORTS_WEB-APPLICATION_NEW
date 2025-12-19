@@ -14,6 +14,7 @@ export default function ActivityDisplay() {
   const [viewMode, setViewMode] = useState('table') // 'cards' or 'table'
   const [absentees, setAbsentees] = useState([])
   const [myAbsent, setMyAbsent] = useState(null)
+  const [absentDate, setAbsentDate] = useState(new Date().toISOString().slice(0, 10)) // Default to today
 
   const endpoint = useMemo(
     () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/employee-activity') ?? 'http://localhost:5000/api/employee-activity',
@@ -36,11 +37,20 @@ export default function ActivityDisplay() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, user, token])
 
+  // Fetch absentees when date changes
+  useEffect(() => {
+    if (user && token) {
+      fetchAbsentees()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [absentDate])
+
   const fetchAbsentees = async () => {
     try {
       if (!token) return
-      const date = new Date().toISOString().slice(0, 10)
-      const res = await fetch(`${endpoint}/absentees?date=${date}`, { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(`${endpoint}/absentees?date=${absentDate}`, { 
+        headers: { Authorization: `Bearer ${token}` } 
+      })
       if (!res.ok) return
       const data = await res.json()
       // Manager-like response: { date, absentees: [...] }
@@ -127,6 +137,20 @@ export default function ActivityDisplay() {
     }
   }
 
+  const formatAbsentDate = (dateStr) => {
+    try {
+      const date = new Date(dateStr)
+      return date.toLocaleDateString('en-IN', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    } catch {
+      return dateStr
+    }
+  }
+
   if (!user) {
     return (
       <section className="vh-form-shell">
@@ -173,6 +197,142 @@ export default function ActivityDisplay() {
         </div>
       )}
 
+      {/* Absentees Section with Date Filter */}
+      <div style={{ marginBottom: '1.5rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <h3 style={{ margin: 0, color: '#092544' }}>Absentees</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <label style={{ fontSize: '0.9rem', color: '#4a5568' }}>
+              Select Date:
+              <input
+                type="date"
+                value={absentDate}
+                onChange={(e) => setAbsentDate(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+                style={{ 
+                  marginLeft: '0.5rem', 
+                  padding: '0.25rem 0.5rem',
+                  border: '1px solid #cbd5e0',
+                  borderRadius: '4px'
+                }}
+              />
+            </label>
+            <button
+              onClick={fetchAbsentees}
+              style={{ 
+                padding: '0.25rem 0.75rem', 
+                background: '#2ad1ff', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+        
+        <p style={{ margin: '0 0 0.75rem 0', color: '#4a5568', fontSize: '0.9rem' }}>
+          Showing absentees for: <strong>{formatAbsentDate(absentDate)}</strong>
+        </p>
+
+        {absentees && absentees.length > 0 ? (
+          <div>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', 
+              gap: '0.75rem',
+              marginBottom: '0.75rem'
+            }}>
+              {absentees.map((a) => (
+                <div 
+                  key={a.id || a.username} 
+                  style={{ 
+                    background: 'white', 
+                    border: '1px solid #fed7d7', 
+                    borderRadius: '6px', 
+                    padding: '0.75rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 'bold', color: '#092544' }}>{a.username}</span>
+                    <span style={{ 
+                      fontSize: '0.7rem', 
+                      background: '#fff5f5', 
+                      color: '#c53030', 
+                      padding: '0.1rem 0.4rem', 
+                      borderRadius: '10px',
+                      fontWeight: 'bold'
+                    }}>
+                      ABSENT
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#4a5568' }}>
+                    <div>{a.role}</div>
+                    {a.employeeId && <div>ID: {a.employeeId}</div>}
+                    {a.reason && (
+                      <div style={{ marginTop: '0.25rem', color: '#718096', fontSize: '0.8rem' }}>
+                        <strong>Reason:</strong> {a.reason}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p style={{ textAlign: 'center', color: '#718096', fontSize: '0.9rem' }}>
+              Total absentees: <strong>{absentees.length}</strong>
+            </p>
+          </div>
+        ) : myAbsent !== null ? (
+          <div style={{ 
+            background: myAbsent ? '#fff5f5' : '#f0fff4', 
+            border: myAbsent ? '1px solid #fed7d7' : '1px solid #c6f6d5', 
+            padding: '1rem', 
+            borderRadius: '6px',
+            textAlign: 'center'
+          }}>
+            {myAbsent ? (
+              <>
+                <p style={{ margin: '0 0 0.5rem 0', color: '#c53030', fontWeight: 'bold' }}>
+                  ⚠️ You have not submitted today's daily target (Marked as Absent)
+                </p>
+                <p style={{ margin: 0, color: '#718096', fontSize: '0.9rem' }}>
+                  Please submit your daily report for {formatAbsentDate(absentDate)}
+                </p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: '0 0 0.5rem 0', color: '#276749', fontWeight: 'bold' }}>
+                  ✓ You have submitted today's daily target
+                </p>
+                <p style={{ margin: 0, color: '#718096', fontSize: '0.9rem' }}>
+                  Daily report submitted for {formatAbsentDate(absentDate)}
+                </p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div style={{ 
+            background: '#edf2f7', 
+            border: '1px solid #e2e8f0', 
+            padding: '1.5rem', 
+            borderRadius: '6px',
+            textAlign: 'center'
+          }}>
+            <p style={{ margin: 0, color: '#718096' }}>
+              No absentees found for {formatAbsentDate(absentDate)}
+            </p>
+            <p style={{ margin: '0.5rem 0 0 0', color: '#a0aec0', fontSize: '0.9rem' }}>
+              All employees have submitted their daily reports
+            </p>
+          </div>
+        )}
+      </div>
+
       {user?.role && user.role.toLowerCase().includes('senior') && subordinates.length > 0 && (
         <div style={{ background: '#f0f9ff', border: '1px solid #2ad1ff', borderRadius: '12px', padding: '1rem', marginBottom: '1.5rem' }}>
           <h3 style={{ margin: '0 0 1rem 0', color: '#092544' }}>Your Team (Junior Assistants)</h3>
@@ -210,26 +370,6 @@ export default function ActivityDisplay() {
           <p style={{ textAlign: 'center', color: '#999' }}>No activities found. Activities will appear once daily/hourly reports are submitted.</p>
         ) : (
           <>
-            {/* Table mode: show separate Daily and Hourly tables, plus absentees when available */}
-            <div style={{ marginBottom: '1rem' }}>
-              {absentees && absentees.length > 0 && (
-                <div style={{ background: '#fff4f4', border: '1px solid #ffb4b4', padding: '0.75rem', borderRadius: '8px', marginBottom: '0.75rem' }}>
-                  <strong>Absentees ({absentees.length}):</strong>
-                  <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                    {absentees.map((a) => (
-                      <span key={a.id} style={{ padding: '0.25rem 0.5rem', background: '#fff', border: '1px solid #ffdede', borderRadius: '6px' }}>{a.username} <small style={{ color: '#666', marginLeft: '0.25rem' }}>{a.role}</small></span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {myAbsent !== null && (
-                <div style={{ background: myAbsent ? '#fff4f4' : '#f4fff6', border: myAbsent ? '1px solid #ffb4b4' : '1px solid #bdecbc', padding: '0.5rem', borderRadius: '6px', marginBottom: '0.5rem' }}>
-                  {myAbsent ? <strong>You have not submitted today's daily target (Absent)</strong> : <strong>You have submitted today's daily target</strong>}
-                </div>
-              )}
-            </div>
-
             {/* Daily Reports Table */}
             <div style={{ marginBottom: '1rem' }}>
               <h4 style={{ margin: '0 0 0.5rem 0' }}>Daily Reports</h4>
