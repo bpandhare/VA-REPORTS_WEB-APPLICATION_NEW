@@ -50,6 +50,7 @@ const isTeamLeaderOrManager = (user) => {
 }
 
 // GET - Get all activities with filters (UPDATED WITH ROLE-BASED ACCESS)
+// GET - Get all activities with filters (FIXED VERSION)
 router.get('/activities', verifyTokenAndRole(), async (req, res) => {
   try {
     const { 
@@ -63,13 +64,61 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
     } = req.query;
 
     const userId = req.user.id;
-    const userRole = req.user.role;
-    const isUserManager = isManager(req.user);
     const isUserTeamLeaderOrManager = isTeamLeaderOrManager(req.user);
 
-    console.log(`👤 User ${userId} (${userRole}) accessing activities. Manager: ${isUserManager}, TeamLeader/Manager: ${isUserTeamLeaderOrManager}`);
+    // Build WHERE conditions
+    let whereConditions = [];
+    let params = [];
 
-    let baseQuery = `
+    // ROLE-BASED FILTER: Regular employees only see their own activities
+    if (!isUserTeamLeaderOrManager) {
+      // Get current user's employee_id and username
+      const [currentUser] = await pool.execute(
+        'SELECT employee_id, username FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (currentUser.length > 0) {
+        const userEmpId = currentUser[0].employee_id;
+        const username = currentUser[0].username;
+        
+        whereConditions.push('(a.engineer_id = ? OR a.engineer_name = ? OR u.id = ?)');
+        params.push(userEmpId, username, userId);
+      }
+    }
+
+    // Date filter
+    if (date) {
+      whereConditions.push('DATE(a.date) = DATE(?)');
+      params.push(date);
+    }
+
+    // Date range filter
+    if (startDate && endDate) {
+      whereConditions.push('DATE(a.date) BETWEEN DATE(?) AND DATE(?)');
+      params.push(startDate, endDate);
+    }
+
+    // Engineer filter (only for managers/team leaders)
+    if (engineerId && isUserTeamLeaderOrManager) {
+      whereConditions.push('(a.engineer_id = ? OR u.employee_id = ?)');
+      params.push(engineerId, engineerId);
+    }
+
+    // Status filter
+    if (status) {
+      whereConditions.push('a.status = ?');
+      params.push(status);
+    }
+
+    // Build the WHERE clause
+    let whereClause = '';
+    if (whereConditions.length > 0) {
+      whereClause = 'WHERE ' + whereConditions.join(' AND ');
+    }
+
+    // Build the main query
+    const baseQuery = `
       SELECT 
         a.id,
         DATE_FORMAT(a.date, '%Y-%m-%d') as date,
@@ -88,119 +137,56 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
         DATE_FORMAT(a.logged_at, '%Y-%m-%d %H:%i:%s') as logged_at
       FROM activities a
       LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
-      WHERE 1=1
+      ${whereClause}
+    `;
+
+    console.log('🔍 [DEBUG] Base params:', params);
+    console.log('🔍 [DEBUG] Number of params:', params.length);
+
+    // Count total records - FIXED: Use same conditions
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM activities a
+      LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
+      ${whereClause}
     `;
     
-    const params = [];
-
-    // ROLE-BASED FILTER: Regular employees only see their own activities
-    // Managers and Team Leaders see all activities
-    if (!isUserTeamLeaderOrManager) {
-      // Regular employee - only see their own activities
-      // Get current user's employee_id and username
-      const [currentUser] = await pool.execute(
-        'SELECT employee_id, username FROM users WHERE id = ?',
-        [userId]
-      );
-      
-      if (currentUser.length > 0) {
-        const userEmpId = currentUser[0].employee_id;
-        const username = currentUser[0].username;
-        
-        baseQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ? OR u.id = ?)`;
-        params.push(userEmpId, username, userId);
-        console.log(`🔒 Regular employee filter: empId=${userEmpId}, username=${username}`);
-      }
-    }
-
-    // Date filter
-    if (date) {
-      baseQuery += ` AND DATE(a.date) = DATE(?)`;
-      params.push(date);
-    }
-
-    // Date range filter
-    if (startDate && endDate) {
-      baseQuery += ` AND DATE(a.date) BETWEEN DATE(?) AND DATE(?)`;
-      params.push(startDate, endDate);
-    }
-
-    // Engineer filter (only for managers/team leaders)
-    if (engineerId && isUserTeamLeaderOrManager) {
-      baseQuery += ` AND (a.engineer_id = ? OR u.employee_id = ?)`;
-      params.push(engineerId, engineerId);
-    }
-
-    // Status filter
-    if (status) {
-      baseQuery += ` AND a.status = ?`;
-      params.push(status);
-    }
-
-    console.log('Executing activities query with role-based access');
-    console.log('User role:', userRole, 'Is Manager/Team Leader:', isUserTeamLeaderOrManager);
-
-    // Count total records
-    const countQuery = `SELECT COUNT(*) as total FROM (${baseQuery}) as subquery`;
+    console.log('🔍 [DEBUG] Count query:', countQuery);
+    console.log('🔍 [DEBUG] Count params:', params);
+    
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0]?.total || 0;
 
     // Add ordering and pagination
-    baseQuery += ` ORDER BY a.date DESC, a.logged_at DESC`;
+    const orderClause = `ORDER BY a.date DESC, a.logged_at DESC`;
+    const paginationClause = `LIMIT ? OFFSET ?`;
     
-    const offset = (page - 1) * limit;
-    const finalQuery = `${baseQuery} LIMIT ? OFFSET ?`;
-    const finalParams = [...params, parseInt(limit), offset];
+    // FIXED: Create new array for pagination params
+    const paginationParams = [...params, parseInt(limit), (parseInt(page) - 1) * parseInt(limit)];
+    
+    const finalQuery = `
+      ${baseQuery}
+      ${orderClause}
+      ${paginationClause}
+    `;
 
-    const [activities] = await pool.execute(finalQuery, finalParams);
+    console.log('🔍 [DEBUG] Final query:', finalQuery);
+    console.log('🔍 [DEBUG] Final params:', paginationParams);
+    console.log('🔍 [DEBUG] Final params count:', paginationParams.length);
 
-    // Get today's stats (with role-based access)
+    const [activities] = await pool.execute(finalQuery, paginationParams);
+    console.log('✅ Query executed successfully, found', activities.length, 'activities');
+
+    // Get today's stats
     const today = new Date().toISOString().split('T')[0];
-    
-    let statsQuery = `
+    const [stats] = await pool.execute(`
       SELECT 
         COUNT(DISTINCT engineer_id) as active_employees,
         SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as on_leave,
         SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count
       FROM activities 
       WHERE DATE(date) = DATE(?)
-    `;
-    
-    let statsParams = [today];
-    
-    // Apply role-based filter for stats
-    if (!isUserTeamLeaderOrManager) {
-      const [currentUser] = await pool.execute(
-        'SELECT employee_id, username FROM users WHERE id = ?',
-        [userId]
-      );
-      
-      if (currentUser.length > 0) {
-        const userEmpId = currentUser[0].employee_id;
-        const username = currentUser[0].username;
-        
-        statsQuery += ` AND (engineer_id = ? OR engineer_name = ?)`;
-        statsParams.push(userEmpId, username);
-      }
-    }
-    
-    const [stats] = await pool.execute(statsQuery, statsParams);
-
-    // Get absentees list (only for managers/team leaders)
-    let absentees = [];
-    if (isUserTeamLeaderOrManager) {
-      const [absenteesResult] = await pool.execute(`
-        SELECT 
-          COALESCE(u.username, a.engineer_name) as engineer_name,
-          COALESCE(u.employee_id, a.engineer_id) as engineer_id,
-          a.problem as reason
-        FROM activities a
-        LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
-        WHERE a.status = 'absent' 
-          AND DATE(a.date) = DATE(?)
-      `, [today]);
-      absentees = absenteesResult;
-    }
+    `, [today]);
 
     res.json({
       success: true,
@@ -224,18 +210,14 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
       total,
       activeEmployees: stats[0]?.active_employees || 0,
       onLeave: stats[0]?.on_leave || 0,
-      absentees: absentees.map(a => ({
-        name: a.engineer_name,
-        engineerId: a.engineer_id,
-        reason: a.reason
-      })),
+      absentCount: stats[0]?.absent_count || 0,
       page: parseInt(page),
       totalPages: Math.ceil(total / limit),
-      userRole: userRole,
-      accessLevel: isUserTeamLeaderOrManager ? 'full' : 'restricted'
+      userRole: req.user.role
     });
+
   } catch (error) {
-    console.error('Failed to fetch activities:', error);
+    console.error('❌ Failed to fetch activities:', error);
     res.status(500).json({ 
       success: false,
       message: 'Unable to fetch activities', 
@@ -323,8 +305,8 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
         const username = currentUser[0].username;
         
         // Filter activities
-        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ? OR u.id = ?)`;
-        activitiesParams.push(userEmpId, username, userId);
+        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ?)`;
+        activitiesParams.push(userEmpId, username);
         
         // Filter daily reports
         dailyReportsQuery += ` AND (d.user_id = ? OR d.incharge = ?)`;
@@ -337,6 +319,9 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
     activitiesQuery += ` ORDER BY a.logged_at DESC`;
     dailyReportsQuery += ` ORDER BY d.created_at DESC`;
 
+    console.log('🔍 [DATE-SUMMARY] Activities query:', activitiesQuery);
+    console.log('🔍 [DATE-SUMMARY] Activities params:', activitiesParams);
+    
     const [activities] = await pool.execute(activitiesQuery, activitiesParams);
     const [dailyReports] = await pool.execute(dailyReportsQuery, dailyReportsParams);
 
@@ -668,8 +653,9 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
         const userEmpId = currentUser[0].employee_id;
         const username = currentUser[0].username;
         
-        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ? OR u.id = ?)`;
-        activitiesParams.push(userEmpId, username, userId);
+        // FIXED: Use simpler condition
+        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ?)`;
+        activitiesParams.push(userEmpId, username);
         
         dailyReportsQuery += ` AND (d.user_id = ? OR d.incharge = ?)`;
         dailyReportsParams.push(userId, username);
@@ -681,6 +667,9 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
     activitiesQuery += ` ORDER BY engineer_name`;
     dailyReportsQuery += ` ORDER BY engineer_name`;
 
+    console.log('🔍 [ATTENDANCE] Activities query:', activitiesQuery);
+    console.log('🔍 [ATTENDANCE] Activities params:', activitiesParams);
+    
     const [activities] = await pool.execute(activitiesQuery, activitiesParams);
     const [dailyReports] = await pool.execute(dailyReportsQuery, dailyReportsParams);
 
@@ -834,8 +823,9 @@ router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
         const userEmpId = currentUser[0].employee_id;
         const username = currentUser[0].username;
         
-        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ? OR u.id = ?)`;
-        activitiesParams.push(userEmpId, username, userId);
+        // FIXED: Use simpler condition
+        activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ?)`;
+        activitiesParams.push(userEmpId, username);
         
         dailyReportsQuery += ` AND (d.user_id = ? OR d.incharge = ?)`;
         dailyReportsParams.push(userId, username);
@@ -847,6 +837,9 @@ router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
     activitiesQuery += ` ORDER BY DATE(a.date) DESC, engineer_name`;
     dailyReportsQuery += ` ORDER BY DATE(d.report_date) DESC, engineer_name`;
 
+    console.log('🔍 [ATTENDANCE-RANGE] Activities query:', activitiesQuery);
+    console.log('🔍 [ATTENDANCE-RANGE] Activities params:', activitiesParams);
+    
     const [activitiesEmployees] = await pool.execute(activitiesQuery, activitiesParams);
     const [dailyReportEmployees] = await pool.execute(dailyReportsQuery, dailyReportsParams);
 

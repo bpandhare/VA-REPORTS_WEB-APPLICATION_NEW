@@ -4,6 +4,7 @@ import './OnboardingForm.css'
 
 export default function ActivityDisplay() {
   const { token, user } = useAuth()
+  
   const [activities, setActivities] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -22,22 +23,20 @@ export default function ActivityDisplay() {
   }, [])
 
   // Define endpoints correctly
-  const endpoints = useMemo(() => ({
-    // Activity endpoints (from activity.js)
-    activities: `${API_BASE}/api/activity/activities`,
-    stats: `${API_BASE}/api/activity/stats`,
-    dateSummary: `${API_BASE}/api/activity/date-summary`,
-    availableDates: `${API_BASE}/api/activity/available-dates`,
-    createActivity: `${API_BASE}/api/activity/activity`,
-    todaySummary: `${API_BASE}/api/activity/today-summary`,
-    attendance: `${API_BASE}/api/activity/attendance`,
-    
-    // Auth endpoints (from auth.js)
-    profile: `${API_BASE}/api/auth/profile`,
-    employeeActivities: `${API_BASE}/api/auth/activities`,
-    employeeSummary: `${API_BASE}/api/auth/summary`
-  }), [API_BASE])
-
+ const endpoints = useMemo(() => ({
+  // Activity endpoints (all under /api/activity/)
+  activities: `${API_BASE}/api/activity/activities`,
+  stats: `${API_BASE}/api/activity/stats`,
+  dateSummary: `${API_BASE}/api/activity/date-summary`,
+  availableDates: `${API_BASE}/api/activity/available-dates`,
+  attendance: `${API_BASE}/api/activity/attendance`,
+  attendanceRange: `${API_BASE}/api/activity/attendance/range`,
+  
+  // Auth endpoints
+  profile: `${API_BASE}/api/auth/profile`,
+  currentUser: `${API_BASE}/api/daily-target/current-user`,  // From your daily-target routes
+  employees: `${API_BASE}/api/daily-target/employees`,       // From your daily-target routes
+}), [API_BASE])
   // Debug: Log endpoints
   useEffect(() => {
     console.log('🔧 API Endpoints:', {

@@ -338,3 +338,85 @@ ALTER TABLE users ADD COLUMN full_name VARCHAR(100) DEFAULT NULL AFTER username;
 
 -- Update existing users to set full_name from username
 UPDATE users SET full_name = username WHERE full_name IS NULL;
+
+DROP TABLE IF EXISTS daily_target_reports;
+
+CREATE TABLE daily_target_reports (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  report_date DATE NOT NULL,
+  in_time TIME,
+  out_time TIME,
+  customer_name VARCHAR(255),
+  customer_person VARCHAR(255),
+  customer_contact VARCHAR(20),
+  end_customer_name VARCHAR(255),
+  end_customer_person VARCHAR(255),
+  end_customer_contact VARCHAR(20),
+  project_no VARCHAR(100),
+  location_type VARCHAR(50) NOT NULL,
+  leave_type VARCHAR(50),
+  site_location TEXT,
+  location_lat DECIMAL(10, 8),
+  location_lng DECIMAL(11, 8),
+  mom_report_path TEXT,
+  daily_target_planned TEXT,
+  daily_target_achieved TEXT,
+  additional_activity TEXT,
+  who_added_activity VARCHAR(255),
+  daily_pending_target TEXT,
+  reason_pending_target TEXT,
+  problem_faced TEXT,
+  problem_resolved TEXT,
+  online_support_required VARCHAR(10),
+  support_engineer_name VARCHAR(255),
+  site_start_date DATE,
+  site_end_date DATE,
+  incharge VARCHAR(255),
+  remark TEXT,
+  attendance_status VARCHAR(50) DEFAULT 'present',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+-- Add these columns to daily_target_reports table
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_status VARCHAR(20) DEFAULT 'pending',
+ADD COLUMN leave_approved_by VARCHAR(100),
+ADD COLUMN leave_approved_at DATETIME,
+ADD COLUMN leave_rejection_reason TEXT,
+ADD COLUMN leave_approval_remark TEXT,
+ADD COLUMN leave_cancellation_reason TEXT;
+
+
+-- Add these columns to activities table
+ALTER TABLE activities 
+ADD COLUMN approved_by VARCHAR(100),
+ADD COLUMN approved_at DATETIME,
+ADD COLUMN rejected_by VARCHAR(100),
+ADD COLUMN rejected_at DATETIME,
+ADD COLUMN rejection_reason TEXT;
+-- Add leave_status column
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_status VARCHAR(20) DEFAULT NULL 
+COMMENT 'pending, approved, rejected, cancelled';
+
+-- Add other leave-related columns that might be referenced in your code
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_approved_by VARCHAR(255) DEFAULT NULL;
+
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_approved_at TIMESTAMP DEFAULT NULL;
+
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_rejection_reason TEXT DEFAULT NULL;
+
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_cancellation_reason TEXT DEFAULT NULL;
+
+ALTER TABLE daily_target_reports 
+ADD COLUMN leave_approval_remark TEXT DEFAULT NULL;
+
+-- Optionally, add an index for better performance
+CREATE INDEX idx_leave_status ON daily_target_reports(leave_status);
+CREATE INDEX idx_location_type ON daily_target_reports(location_type);

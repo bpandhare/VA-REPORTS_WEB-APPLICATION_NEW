@@ -45,3 +45,56 @@
 .logout-btn:hover {
   background: #1a365d;
 }
+/* App.css or main layout CSS */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f8fafc;
+  overflow-x: hidden;
+}
+
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  position: relative;
+}
+
+/* Main content area - ensure proper spacing */
+.main-content {
+  flex: 1;
+  margin-left: 280px; /* Sidebar width */
+  padding: 40px 30px 30px 30px; /* Top padding for user info panel */
+  min-height: 100vh;
+  background: #f8fafc;
+  position: relative;
+  overflow-y: auto;
+}
+
+/* Ensure forms have enough space */
+.form-container {
+  margin-top: 20px; /* Space from user info panel */
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .main-content {
+    margin-left: 260px;
+    padding: 35px 20px 20px 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .main-content {
+    margin-left: 0;
+    padding: 100px 15px 15px 15px;
+  }
+}

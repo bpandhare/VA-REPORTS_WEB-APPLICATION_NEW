@@ -627,188 +627,278 @@ function DailyTargetForm() {
     }
   }
 
-  const handleSubmit = async () => {
-    console.log('=== FORM SUBMISSION STARTED ===')
-    console.log('Location type:', formData.locationType)
-    console.log('Leave type:', formData.leaveType)
-    console.log('Form data:', formData)
+const handleSubmit = async () => {
+  console.log('=== FORM SUBMISSION STARTED ===')
+  console.log('Location type:', formData.locationType)
+  console.log('Leave type:', formData.leaveType)
+  console.log('Form data:', formData)
 
-    setSubmitting(true)
-    setAlert(null)
+  setSubmitting(true)
+  setAlert(null)
 
-    // Check if report already exists for this date (for all location types)
-    const existingReport = await checkExistingReport(formData.reportDate, isEditMode ? submittedData?.id : null)
+  // IMPORTANT: Validate locationType for leave applications
+  if (formData.leaveType && formData.locationType !== 'leave') {
+    console.log('⚠️ WARNING: leaveType is set but locationType is not "leave". Setting locationType to "leave"');
+    formData.locationType = 'leave';
+  }
+
+  // Check if report already exists for this date (for all location types)
+  const existingReport = await checkExistingReport(formData.reportDate, isEditMode ? submittedData?.id : null)
+  
+  if (existingReport && (!isEditMode || (isEditMode && existingReport.id !== submittedData?.id))) {
+    const reportType = existingReport.locationType === 'leave' 
+      ? `leave (${existingReport.leaveType || 'leave'})` 
+      : `${existingReport.locationType} report`
     
-    if (existingReport && (!isEditMode || (isEditMode && existingReport.id !== submittedData?.id))) {
-      const reportType = existingReport.locationType === 'leave' 
-        ? `leave (${existingReport.leaveType || 'leave'})` 
-        : `${existingReport.locationType} report`
-      
-      setAlert({ 
-        type: 'error', 
-        message: `You already have a ${reportType} for ${formData.reportDate}. Please edit the existing report instead.` 
-      })
+    setAlert({ 
+      type: 'error', 
+      message: `You already have a ${reportType} for ${formData.reportDate}. Please edit the existing report instead.` 
+    })
+    setSubmitting(false)
+    return
+  }
+
+  // Check leave balance when applying for leave
+  if (formData.locationType === 'leave') {
+    if (!formData.leaveType) {
+      setAlert({ type: 'error', message: 'Please select a leave type' })
+      setSubmitting(false)
+      return
+    }
+    
+    const selectedType = leaveTypes.find(lt => lt.id === formData.leaveType)
+    if (!selectedType?.available) {
+      setAlert({ type: 'error', message: selectedType?.reason || 'This leave type is not available for you' })
       setSubmitting(false)
       return
     }
 
-    // Check leave balance when applying for leave
+    // Validate leave date
+    const validation = await validateLeaveDate(formData.reportDate)
+    if (!validation.valid) {
+      setAlert({ type: 'error', message: validation.message })
+      setSubmitting(false)
+      return
+    }
+
+    // Check if availability was checked and is available
+    if (!leaveAvailability?.available && leaveAvailability !== null) {
+      setAlert({ type: 'error', message: 'Please check leave availability first or select different dates' })
+      setSubmitting(false)
+      return
+    }
+  }
+
+  // Validate PDF upload for site location
+  if (formData.locationType === 'site' && !locationAccess && !(isEditMode && formData.locationLat && formData.locationLng)) {
+    setAlert({ type: 'error', message: 'Please allow location access to upload MOM report' })
+    setSubmitting(false)
+    return
+  }
+
+  try {
+    const formDataToSend = new FormData()
+
+    // Prepare data with proper leave handling
+    const dataToSubmit = {
+      ...formData,
+      problemFaced: formData.locationType === 'leave' 
+        ? (formData.problemFaced || `Leave Application: ${leaveTypes.find(lt => lt.id === formData.leaveType)?.name || formData.leaveType}`) 
+        : formData.problemFaced
+    }
+
+    // For leave, set proper leave-related fields and clear work fields
     if (formData.locationType === 'leave') {
-      if (!formData.leaveType) {
-        setAlert({ type: 'error', message: 'Please select a leave type' })
-        setSubmitting(false)
-        return
-      }
+      // Clear time fields for leave
+      dataToSubmit.inTime = ''
+      dataToSubmit.outTime = ''
       
-      const selectedType = leaveTypes.find(lt => lt.id === formData.leaveType)
-      if (!selectedType?.available) {
-        setAlert({ type: 'error', message: selectedType?.reason || 'This leave type is not available for you' })
-        setSubmitting(false)
-        return
-      }
-
-      // Validate leave date
-      const validation = await validateLeaveDate(formData.reportDate)
-      if (!validation.valid) {
-        setAlert({ type: 'error', message: validation.message })
-        setSubmitting(false)
-        return
-      }
-
-      // Check if availability was checked and is available
-      if (!leaveAvailability?.available && leaveAvailability !== null) {
-        setAlert({ type: 'error', message: 'Please check leave availability first or select different dates' })
-        setSubmitting(false)
-        return
-      }
+      // Set leave-specific defaults
+      dataToSubmit.siteLocation = 'Leave'
+      dataToSubmit.problemFaced = dataToSubmit.problemFaced || `Leave Application: ${leaveTypes.find(lt => lt.id === formData.leaveType)?.name || formData.leaveType}`
+      dataToSubmit.remark = dataToSubmit.remark || `${leaveTypes.find(lt => lt.id === formData.leaveType)?.name || formData.leaveType} Leave Application`
+      
+      // Clear work-related fields that should be empty for leave
+      dataToSubmit.customerName = ''
+      dataToSubmit.customerPerson = ''
+      dataToSubmit.customerContact = ''
+      dataToSubmit.endCustomerName = ''
+      dataToSubmit.endCustomerPerson = ''
+      dataToSubmit.endCustomerContact = ''
+      dataToSubmit.projectNo = ''
+      dataToSubmit.dailyTargetPlanned = ''
+      dataToSubmit.dailyTargetAchieved = ''
+      dataToSubmit.additionalActivity = ''
+      dataToSubmit.whoAddedActivity = ''
+      dataToSubmit.dailyPendingTarget = ''
+      dataToSubmit.reasonPendingTarget = ''
+      dataToSubmit.problemResolved = ''
+      dataToSubmit.onlineSupportRequired = ''
+      dataToSubmit.supportEngineerName = ''
+      dataToSubmit.siteStartDate = ''
+      dataToSubmit.siteEndDate = ''
+      dataToSubmit.incharge = ''
     }
 
-    // Validate PDF upload for site location
-    if (formData.locationType === 'site' && !locationAccess && !(isEditMode && formData.locationLat && formData.locationLng)) {
-      setAlert({ type: 'error', message: 'Please allow location access to upload MOM report' })
-      setSubmitting(false)
-      return
+    // Debug: Log what we're sending
+    console.log('🔍 Sending data with locationType:', formData.locationType)
+    console.log('🔍 Leave type:', formData.leaveType)
+    console.log('🔍 Data being sent keys:', Object.keys(dataToSubmit))
+
+    // Append all fields to FormData
+    Object.keys(dataToSubmit).forEach((key) => {
+      if (key === 'momReport' && dataToSubmit.momReport) {
+        console.log(`📎 Appending file: ${key} = ${dataToSubmit.momReport.name}`)
+        formDataToSend.append('momReport', dataToSubmit.momReport)
+      } else if (key !== 'momReport') {
+        console.log(`📝 Appending field: ${key} = ${dataToSubmit[key] || '(empty)'}`)
+        formDataToSend.append(key, dataToSubmit[key] || '')
+      }
+    })
+
+    const updateEndpoint = isEditMode ? `${endpoint}/${submittedData.id}` : endpoint
+    console.log('📤 Sending to:', updateEndpoint)
+    console.log('📤 Method:', isEditMode ? 'PUT' : 'POST')
+    console.log('📤 Token available:', !!token)
+    
+    const headers = {}
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`
+      console.log('📤 Authorization header set')
     }
 
+    const response = await fetch(updateEndpoint, {
+      method: isEditMode ? 'PUT' : 'POST',
+      headers: headers,
+      body: formDataToSend,
+    })
+
+    console.log('📥 Response status:', response.status)
+    console.log('📥 Response status text:', response.statusText)
+    
+    // Get the raw response text first
+    const responseText = await response.text()
+    console.log('📥 Raw response length:', responseText.length)
+    
+    let responseData
+    let errorMessage = 'Unable to save daily target report'
+    
     try {
-      const formDataToSend = new FormData()
-
-      // Add attendanceStatus field - KEY FIX: Set status to 'leave' for leave location
-      const attendanceStatus = formData.locationType === 'leave' ? 'leave' : 'present'
+      // Try to parse as JSON
+      if (responseText.trim()) {
+        responseData = JSON.parse(responseText)
+        console.log('📥 Parsed response data:', responseData)
+      } else {
+        console.log('📥 Response is empty')
+        responseData = {}
+      }
+    } catch (parseError) {
+      console.error('❌ Failed to parse response as JSON:', parseError)
       
-      // Prepare data with attendance status and proper leave handling
-      const dataToSubmit = {
-        ...formData,
-        attendanceStatus: attendanceStatus, // This tells the backend this is a leave
-        problemFaced: formData.locationType === 'leave' 
-          ? (formData.problemFaced || 'On Leave') 
-          : formData.problemFaced
+      // If it's not JSON, it might be HTML error page or plain text
+      if (responseText.includes('<!DOCTYPE') || responseText.includes('<html')) {
+        errorMessage = 'Server returned HTML error page. Check if backend is running correctly.'
+      } else if (responseText.includes('Cannot POST') || responseText.includes('Cannot PUT')) {
+        errorMessage = `Endpoint not found: ${updateEndpoint}`
+      } else if (responseText) {
+        errorMessage = `Server error: ${responseText.substring(0, 200)}`
       }
-
-      // For leave, set proper leave-related fields and clear work fields
-      if (formData.locationType === 'leave') {
-        // Clear time fields for leave
-        dataToSubmit.inTime = ''
-        dataToSubmit.outTime = ''
-        
-        // Set leave-specific defaults
-        dataToSubmit.siteLocation = 'Leave'
-        dataToSubmit.problemFaced = dataToSubmit.problemFaced || 'On Leave'
-        dataToSubmit.remark = dataToSubmit.remark || 'Leave application'
-        
-        // Clear work-related fields that should be empty for leave
-        dataToSubmit.customerName = ''
-        dataToSubmit.customerPerson = ''
-        dataToSubmit.customerContact = ''
-        dataToSubmit.endCustomerName = ''
-        dataToSubmit.endCustomerPerson = ''
-        dataToSubmit.endCustomerContact = ''
-        dataToSubmit.projectNo = ''
-        dataToSubmit.dailyTargetPlanned = ''
-        dataToSubmit.dailyTargetAchieved = ''
-        dataToSubmit.additionalActivity = ''
-        dataToSubmit.whoAddedActivity = ''
-        dataToSubmit.dailyPendingTarget = ''
-        dataToSubmit.reasonPendingTarget = ''
-        dataToSubmit.problemResolved = ''
-        dataToSubmit.onlineSupportRequired = ''
-        dataToSubmit.supportEngineerName = ''
-        dataToSubmit.siteStartDate = ''
-        dataToSubmit.siteEndDate = ''
-        dataToSubmit.incharge = ''
-      }
-
-      // Debug: Log what we're sending
-      console.log('🔍 Sending data with attendanceStatus:', attendanceStatus)
-      console.log('🔍 Location type:', formData.locationType)
-      console.log('🔍 Leave type:', formData.leaveType)
-      console.log('🔍 Data being sent:', dataToSubmit)
-
-      // Append all fields to FormData
-      Object.keys(dataToSubmit).forEach((key) => {
-        if (key === 'momReport' && dataToSubmit.momReport) {
-          formDataToSend.append('momReport', dataToSubmit.momReport)
-        } else if (key !== 'momReport') {
-          formDataToSend.append(key, dataToSubmit[key] || '')
-        }
-      })
-
-      const updateEndpoint = isEditMode ? `${endpoint}/${submittedData.id}` : endpoint
-      const response = await fetch(updateEndpoint, {
-        method: isEditMode ? 'PUT' : 'POST',
-        headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: formDataToSend,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Unable to save daily target report. Please retry.' }))
-        throw new Error(errorData.message || 'Unable to save daily target report. Please retry.')
-      }
-
-      const responseData = await response.json()
-
-      // Store submitted data
-      const submittedFormData = {
-        ...dataToSubmit,
-        id: isEditMode ? submittedData.id : responseData.id,
-        submittedAt: isEditMode ? submittedData.submittedAt : new Date().toISOString(),
-        momReportName: dataToSubmit.momReport ? dataToSubmit.momReport.name : (isEditMode ? submittedData.momReportName : null),
-        locationName: locationName || dataToSubmit.siteLocation || '',
-      }
-      setSubmittedData(submittedFormData)
-      setIsEditMode(false)
       
-      setAlert({ 
-        type: 'success', 
-        message: isEditMode ? 'Report updated successfully!' : 
-          formData.locationType === 'leave' ? 'Leave application submitted successfully!' : 
-          'Daily target report saved successfully! You can now view and edit it below.' 
-      })
-      
-      // Reset form
-      const newFormData = defaultPayload()
-      setFormData(newFormData)
-      setLocationAccess(false)
-      setLocationError('')
-      setSelectedLeaveType(null)
-      setLeaveAvailability(null)
-
-      // Reset file input
-      setTimeout(() => {
-        const fileInput = document.querySelector('input[name="momReport"]')
-          if (fileInput) {
-            fileInput.value = ''
-          }
-        }, 100)
-      } catch (error) {
-        setAlert({ type: 'error', message: error.message })
-      } finally {
-        setSubmitting(false)
-      }
+      throw new Error(errorMessage)
     }
 
+    if (!response.ok) {
+      console.error('❌ Server returned error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: responseData
+      })
+      
+      // Handle different error status codes
+      if (response.status === 401) {
+        errorMessage = 'Authentication failed. Please log in again.'
+      } else if (response.status === 403) {
+        errorMessage = 'You do not have permission to perform this action.'
+      } else if (response.status === 404) {
+        errorMessage = 'Endpoint not found. Check if the backend server is running.'
+      } else if (response.status === 409) {
+        errorMessage = responseData.message || 'A report already exists for this date.'
+      } else if (response.status === 422) {
+        errorMessage = responseData.message || 'Invalid data submitted.'
+      } else if (response.status === 500) {
+        errorMessage = responseData.message || 'Server internal error. Please try again later.'
+        
+        // Add more details if available
+        if (responseData.error) {
+          errorMessage += ` (${responseData.error})`
+        }
+      }
+      
+      throw new Error(errorMessage)
+    }
+
+    console.log('✅ Success! Response:', responseData)
+
+    // Store submitted data
+    const submittedFormData = {
+      ...dataToSubmit,
+      id: isEditMode ? submittedData.id : responseData.id,
+      submittedAt: isEditMode ? submittedData.submittedAt : new Date().toISOString(),
+      momReportName: dataToSubmit.momReport ? dataToSubmit.momReport.name : (isEditMode ? submittedData.momReportName : null),
+      locationName: locationName || dataToSubmit.siteLocation || '',
+    }
+    setSubmittedData(submittedFormData)
+    setIsEditMode(false)
+    
+    setAlert({ 
+      type: 'success', 
+      message: isEditMode ? 'Report updated successfully!' : 
+        formData.locationType === 'leave' ? 'Leave application submitted successfully!' : 
+        'Daily target report saved successfully! You can now view and edit it below.' 
+    })
+    
+    // Reset form
+    const newFormData = defaultPayload()
+    setFormData(newFormData)
+    setLocationAccess(false)
+    setLocationError('')
+    setSelectedLeaveType(null)
+    setLeaveAvailability(null)
+
+    // Reset file input
+    setTimeout(() => {
+      const fileInput = document.querySelector('input[name="momReport"]')
+      if (fileInput) {
+        fileInput.value = ''
+      }
+    }, 100)
+    
+  } catch (error) {
+    console.error('❌ Error in handleSubmit:', error)
+    console.error('❌ Error name:', error.name)
+    console.error('❌ Error message:', error.message)
+    
+    let errorMessage = error.message || 'Unable to save daily target report'
+    
+    // Handle specific error types
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      errorMessage = 'Network error. Please check if the backend server is running at http://localhost:5000'
+    } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+      errorMessage = 'Cannot connect to server. Please check: 1) Backend is running, 2) No CORS issues, 3) Network connection'
+    } else if (error.message.includes('JSON')) {
+      errorMessage = 'Server returned an invalid response. The backend might have crashed.'
+    } else if (error.message.includes('Unexpected token')) {
+      errorMessage = 'Server error. Please check backend console for syntax errors.'
+    }
+    
+    setAlert({ 
+      type: 'error', 
+      message: errorMessage 
+    })
+  } finally {
+    setSubmitting(false)
+  }
+}
   const canUploadPDF = formData.locationType === 'site' && locationAccess
 
   return (

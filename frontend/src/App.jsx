@@ -1,76 +1,64 @@
-import { useState } from 'react'
+// App.jsx - Updated with ManagerApproval route
+import { useState, useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
-import AuthForm from './components/AuthForm'
-import HourlyReportForm from './components/HourlyReportForm'
-import DailyTargetForm from './components/DailyTargetForm'
-import ActivityDisplay from './components/ActivityDisplay'
-import CreateMoM from './components/CreateMoM'
-import AttendanceHistory from './components/AttendanceHistory'
 import { AuthProvider, useAuth } from './components/AuthContext'
-import './App.css'
-import './index.css'
+import Sidebar from './components/Sidebar'
+import HourlyForm from './components/HourlyReportForm'
+import DailyTargetForm from './components/DailyTargetForm'
+import ActivityTable from './components/ActivityDisplay'
+import Login from './components/AuthForm'
+import CreateMOM from './components/CreateMoM'
+import AttendanceHistory from './components/AttendanceHistory'
+import LeaveApplication from './components/LeaveApplication'
+import ManagerApproval from './components/ManagerLeaveApproval' // Add this import
 
-function Content() {
-  const { user, logout } = useAuth()
+function AppContent() {
   const [currentPage, setCurrentPage] = useState('hourly')
+  const { token, user } = useAuth()
+  
+  console.log('Auth state:', { token, user, hasToken: !!token })
+  
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
+  }
 
-  return (
-    <div className="app">
-      <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
-      <main className="main">
-        {user && (
-          <div className="user-topbar">
-            <div className="user-info">
-              <span>👤 {user.username}</span>
-              <span>{user.role}</span>
-              {user.employeeId && <span>• {user.employeeId}</span>}
-            </div>
-            <button onClick={logout} className="logout-btn">
-              🚪 Logout
-            </button>
-          </div>
-        )}
-        
-        <Routes>
-          <Route path="/" element={
-            user ? <Navigate to="/hourly" /> : <AuthForm />
-          } />
-          
-          <Route path="/hourly" element={
-            user ? <HourlyReportForm /> : <Navigate to="/" />
-          } />
-          
-          <Route path="/daily" element={
-            user ? <DailyTargetForm /> : <Navigate to="/" />
-          } />
-          
-          <Route path="/activity" element={
-            user ? <ActivityDisplay /> : <Navigate to="/" />
-          } />
-          
-          <Route path="/create-mom" element={
-            user ? <CreateMoM /> : <Navigate to="/" />
-          } />
-          
-          <Route path="/attendance-history" element={
-            user ? <AttendanceHistory /> : <Navigate to="/" />
-          } />
-          
-          <Route path="*" element={<Navigate to="/" />} />
-        </Routes>
-      </main>
-    </div>
-  )
+  if (token) {
+    console.log('User is logged in, showing sidebar')
+    return (
+      <div style={{ display: 'flex', minHeight: '100vh' }}>
+        <Sidebar currentPage={currentPage} onPageChange={handlePageChange} />
+        <main style={{ flex: 1, padding: '20px', overflow: 'auto' }}>
+          <Routes>
+            <Route path="/hourly" element={<HourlyForm />} />
+            <Route path="/daily" element={<DailyTargetForm />} />
+            <Route path="/activity" element={<ActivityTable />} />
+            <Route path="/attendance-history" element={<AttendanceHistory />} />
+            <Route path="/create-mom" element={<CreateMOM />} />
+            <Route path="/leave-application" element={<LeaveApplication />} />
+            <Route path="/leave-approval" element={<ManagerApproval />} /> {/* Add this route */}
+            <Route path="/" element={<Navigate to="/hourly" replace />} />
+            <Route path="*" element={<Navigate to="/hourly" replace />} />
+          </Routes>
+        </main>
+      </div>
+    )
+  } else {
+    console.log('User is NOT logged in, showing login page')
+    return (
+      <Routes>
+        <Route path="*" element={<Login />} />
+      </Routes>
+    )
+  }
 }
 
 function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <Content />
-      </AuthProvider>
-    </Router>
+    <AuthProvider>
+      <Router>
+        <AppContent />
+      </Router>
+    </AuthProvider>
   )
 }
 

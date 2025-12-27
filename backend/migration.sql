@@ -222,3 +222,22 @@ SELECT TABLE_NAME, TABLE_ROWS as 'Rows', CREATE_TIME
 FROM INFORMATION_SCHEMA.TABLES 
 WHERE TABLE_SCHEMA = @dbname 
 ORDER BY TABLE_NAME;
+// In your database setup/init file
+async function addAttendanceStatusColumn() {
+  try {
+    await pool.execute(`
+      ALTER TABLE daily_target_reports 
+      ADD COLUMN attendance_status VARCHAR(50) DEFAULT 'present'
+    `);
+    console.log('✅ Added attendance_status column');
+  } catch (error) {
+    if (error.code === 'ER_DUP_FIELDNAME') {
+      console.log('ℹ️ attendance_status column already exists');
+    } else {
+      console.error('❌ Failed to add attendance_status column:', error);
+    }
+  }
+}
+
+// Call this function when your app starts
+addAttendanceStatusColumn();

@@ -1,17 +1,27 @@
-/* OnboardingForm.css - 完整更新版本 */
+/* OnboardingForm.css - 修复重叠问题版本 */
 
-/* ===== 基础容器 ===== */
+/* ===== 基础容器 - 修复重叠 ===== */
 .vh-form-shell {
   max-width: 1200px;
-  margin: 2rem auto;
-  padding: 2rem;
+  margin: 0 auto; /* 移除上边距，让padding控制 */
+  padding: 2.5rem 2rem;
   background: linear-gradient(135deg, #f7fbff 0%, #ffffff 100%);
   border-radius: 20px;
   box-shadow: 0 12px 40px rgba(15, 26, 53, 0.12);
-  overflow: visible !important;
+  position: relative;
+  z-index: 1;
+  min-height: calc(100vh - 40px); /* 确保高度足够 */
 }
 
-/* ===== 头部样式 ===== */
+/* 添加上边距以防止内容被顶部面板覆盖 */
+.vh-form-shell::before {
+  content: '';
+  display: block;
+  height: 60px; /* 与用户信息面板高度匹配 */
+  width: 100%;
+}
+
+/* ===== 头部样式 - 修复位置 ===== */
 .vh-form-header {
   display: flex;
   justify-content: space-between;
@@ -20,10 +30,13 @@
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  position: relative;
+  z-index: 2;
 }
 
 .vh-user-info {
   flex: 1;
+  position: relative;
 }
 
 .vh-user-info h2 {
@@ -31,12 +44,14 @@
   font-size: 1.8rem;
   color: #092544;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .vh-user-info p {
   margin: 0;
   color: #4a5972;
   font-size: 1rem;
+  line-height: 1.4;
 }
 
 .vh-user-role {
@@ -47,11 +62,14 @@
   background: rgba(33, 150, 243, 0.1);
   border-radius: 12px;
   margin-top: 1rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-user-role span {
   font-size: 0.9rem;
   color: #4a5972;
+  line-height: 1.3;
 }
 
 .vh-user-role strong {
@@ -77,6 +95,8 @@
   padding: 0.5rem;
   border-radius: 12px;
   border: 1px solid rgba(42, 209, 255, 0.2);
+  position: relative;
+  z-index: 2;
 }
 
 .vh-view-toggle button {
@@ -90,6 +110,8 @@
   font-size: 0.95rem;
   color: #667799;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 3;
 }
 
 .vh-view-toggle button:hover {
@@ -114,6 +136,8 @@
   align-items: center;
   gap: 0.75rem;
   animation: slideIn 0.3s ease-out;
+  position: relative;
+  z-index: 2;
 }
 
 @keyframes slideIn {
@@ -161,6 +185,8 @@
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1.5rem;
   border: 1px solid rgba(42, 209, 255, 0.2);
+  position: relative;
+  z-index: 2;
 }
 
 .vh-form-info p {
@@ -170,6 +196,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  line-height: 1.4;
 }
 
 .vh-form-info strong {
@@ -183,6 +210,8 @@
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-grid {
@@ -198,6 +227,8 @@
 /* ===== 状态按钮 ===== */
 .vh-status-buttons {
   margin-bottom: 1.5rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-status-buttons label {
@@ -225,6 +256,8 @@
   font-size: 0.95rem;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: #667799;
+  position: relative;
+  z-index: 3;
 }
 
 .status-btn:hover {
@@ -259,6 +292,8 @@ label {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  position: relative;
+  z-index: 2;
 }
 
 label span {
@@ -287,6 +322,8 @@ input, select, textarea {
   color: #092544;
   background: white;
   transition: all 0.3s ease;
+  position: relative;
+  z-index: 3;
 }
 
 input:focus, select:focus, textarea:focus {
@@ -317,6 +354,8 @@ textarea {
   padding-top: 1.5rem;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   margin-top: 1rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-form-actions button {
@@ -331,6 +370,8 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  position: relative;
+  z-index: 3;
 }
 
 .vh-form-actions button:not(.ghost) {
@@ -367,6 +408,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-view-controls {
@@ -377,6 +420,8 @@ textarea {
   background: #f8faff;
   border-radius: 16px;
   border: 1px solid rgba(42, 209, 255, 0.2);
+  position: relative;
+  z-index: 2;
 }
 
 .vh-view-controls label {
@@ -392,6 +437,8 @@ textarea {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
+  position: relative;
+  z-index: 3;
 }
 
 .vh-view-controls button:hover:not(:disabled) {
@@ -410,6 +457,8 @@ textarea {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1.5rem;
   margin-bottom: 1rem;
+  position: relative;
+  z-index: 2;
 }
 
 .stat-card {
@@ -420,6 +469,8 @@ textarea {
   border: 1.5px solid rgba(42, 209, 255, 0.3);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
   transition: all 0.3s ease;
+  position: relative;
+  z-index: 3;
 }
 
 .stat-card:hover {
@@ -454,6 +505,8 @@ textarea {
   border-radius: 16px;
   border-left: 6px solid #FF9800;
   margin-bottom: 1.5rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-absentees h3 {
@@ -484,13 +537,16 @@ textarea {
   border-bottom: 1px dashed rgba(255, 152, 0, 0.2);
 }
 
-/* ===== 活动表格 - 重点修复 ===== */
+/* ===== 活动表格 - 修复重叠 ===== */
 .vh-activities-table {
   background: white;
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  overflow: visible;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  margin-bottom: 2rem;
 }
 
 .vh-activities-table h3 {
@@ -511,16 +567,13 @@ textarea {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-  min-width: 1000px; /* 确保表格不会过窄 */
+  min-width: 1000px;
 }
 
-/* 表格头部 - 重点修复 */
+/* 表格头部 */
 .vh-activities-table thead {
   background: linear-gradient(135deg, #2ad1ff 0%, #0f6cd8 100%);
   color: white;
-  position: sticky;
-  top: 0;
-  z-index: 100;
 }
 
 .vh-activities-table th {
@@ -596,6 +649,8 @@ textarea {
   border-radius: 12px;
   border: 2px dashed rgba(42, 209, 255, 0.3);
   font-size: 1.1rem;
+  position: relative;
+  z-index: 2;
 }
 
 .vh-no-data::before {
@@ -609,7 +664,7 @@ textarea {
 /* ===== 响应式设计 ===== */
 @media (max-width: 1024px) {
   .vh-form-shell {
-    padding: 1.5rem;
+    padding: 2rem 1.5rem;
     margin: 1rem;
   }
   
@@ -667,9 +722,14 @@ textarea {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
+  /* 在小屏幕上为顶部面板添加更多空间 */
+  .vh-form-shell::before {
+    height: 80px;
+  }
+  
   .vh-form-shell {
-    padding: 1rem;
+    padding: 1.5rem 1rem;
     border-radius: 12px;
   }
   
