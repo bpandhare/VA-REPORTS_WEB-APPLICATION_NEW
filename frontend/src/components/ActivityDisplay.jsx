@@ -23,20 +23,21 @@ export default function ActivityDisplay() {
   }, [])
 
   // Define endpoints correctly
- const endpoints = useMemo(() => ({
-  // Activity endpoints (all under /api/activity/)
-  activities: `${API_BASE}/api/activity/activities`,
-  stats: `${API_BASE}/api/activity/stats`,
-  dateSummary: `${API_BASE}/api/activity/date-summary`,
-  availableDates: `${API_BASE}/api/activity/available-dates`,
-  attendance: `${API_BASE}/api/activity/attendance`,
-  attendanceRange: `${API_BASE}/api/activity/attendance/range`,
+  const endpoints = useMemo(() => ({
+    // Activity endpoints (all under /api/activity/)
+    activities: `${API_BASE}/api/activity/activities`,
+    stats: `${API_BASE}/api/activity/stats`,
+    dateSummary: `${API_BASE}/api/activity/date-summary`,
+    availableDates: `${API_BASE}/api/activity/available-dates`,
+    attendance: `${API_BASE}/api/activity/attendance`,
+    attendanceRange: `${API_BASE}/api/activity/attendance/range`,
+    
+    // Auth endpoints
+    profile: `${API_BASE}/api/auth/profile`,
+    currentUser: `${API_BASE}/api/daily-target/current-user`,  // From your daily-target routes
+    employees: `${API_BASE}/api/daily-target/employees`,       // From your daily-target routes
+  }), [API_BASE])
   
-  // Auth endpoints
-  profile: `${API_BASE}/api/auth/profile`,
-  currentUser: `${API_BASE}/api/daily-target/current-user`,  // From your daily-target routes
-  employees: `${API_BASE}/api/daily-target/employees`,       // From your daily-target routes
-}), [API_BASE])
   // Debug: Log endpoints
   useEffect(() => {
     console.log('🔧 API Endpoints:', {
@@ -301,17 +302,45 @@ export default function ActivityDisplay() {
         <div>
           <p className="vh-form-label">Activity Dashboard</p>
           <h2>
-            {user?.role === 'Manager' || user?.role === 'Team Leader' ? 'Monitor All Employee Activities' : 'Your Activities'}
+            {user?.role === 'Manager' || user?.role === 'Team Leader' ? 'Monitor All Employee Activities' : 'Your Activities Dashboard'}
           </h2>
           
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem' }}>
-            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-              <div style={{ background: '#e8f4ff', padding: '0.5rem 1rem', borderRadius: '8px' }}>
-                <strong>Selected Date:</strong> {formatDate(selectedDate)}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginTop: '0.5rem',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              gap: '1rem', 
+              flexWrap: 'wrap',
+              alignItems: 'center'
+            }}>
+              <div style={{ 
+                background: '#e8f4ff', 
+                padding: '0.5rem 1rem', 
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <span>📅</span>
+                <span><strong>Selected Date:</strong> {formatDate(selectedDate)}</span>
               </div>
               {dateSummary && (
-                <div style={{ background: '#e8f4ff', padding: '0.5rem 1rem', borderRadius: '8px' }}>
-                  <strong>Activities:</strong> {dateSummary.summary?.totalActivities || 0}
+                <div style={{ 
+                  background: '#e8f4ff', 
+                  padding: '0.5rem 1rem', 
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  <span>📊</span>
+                  <span><strong>Activities:</strong> {dateSummary.summary?.totalActivities || 0}</span>
                 </div>
               )}
             </div>
@@ -327,7 +356,8 @@ export default function ActivityDisplay() {
                 cursor: loading ? 'not-allowed' : 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '0.5rem'
+                gap: '0.5rem',
+                fontSize: '0.9rem'
               }}
             >
               {loading ? '🔄 Loading...' : '↻ Refresh'}
@@ -477,23 +507,18 @@ export default function ActivityDisplay() {
         {!loading && activeTab === 'summary' && (
           <div>
             {dateSummary ? (
-              <>
+              <div>
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                   gap: '1rem',
                   marginBottom: '2rem'
                 }}>
+                  {/* Only show these 4 cards for employee dashboard */}
                   <div style={{ background: '#e8f4ff', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
                     <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.25rem' }}>Total Activities</div>
                     <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#092544' }}>
                       {dateSummary.summary?.totalActivities || 0}
-                    </div>
-                  </div>
-                  <div style={{ background: '#e8f4ff', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.9rem', color: '#666', marginBottom: '0.25rem' }}>Total Employees</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#092544' }}>
-                      {dateSummary.summary?.totalEmployees || 0}
                     </div>
                   </div>
                   <div style={{ background: '#e8f5e9', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
@@ -589,7 +614,7 @@ export default function ActivityDisplay() {
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             ) : (
               <div style={{ 
                 textAlign: 'center', 
@@ -610,7 +635,7 @@ export default function ActivityDisplay() {
         {!loading && activeTab === 'attendance' && (
           <div>
             {attendanceData ? (
-              <>
+              <div>
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
@@ -792,7 +817,7 @@ export default function ActivityDisplay() {
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             ) : (
               <div style={{ 
                 textAlign: 'center', 
