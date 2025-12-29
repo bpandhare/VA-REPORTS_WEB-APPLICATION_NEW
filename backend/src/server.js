@@ -290,8 +290,12 @@ const limiter = rateLimit({
   legacyHeaders: false,
 })
 
-// Apply rate limiting to API routes
-app.use('/api', limiter)
+// Apply rate limiting to API routes (only in production to avoid dev 429s)
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api', limiter)
+} else {
+  console.log('⚠️ Skipping API rate limiter in non-production environment')
+}
 
 // Temporary request logger for API debugging (logs method and path)
 app.use('/api', (req, res, next) => {

@@ -194,7 +194,7 @@ function AuthForm() {
       const requestBody = {
         username: username.trim(),
         password: password,
-        role: role || 'Engineer' // Default role
+        role: role || ''
       }
 
       // Add additional fields based on mode
@@ -450,8 +450,7 @@ function AuthForm() {
               <option value="Team Leader">Team Leader</option>
               <option value="Senior Engineer">Senior Engineer</option>
               <option value="Junior Engineer">Junior Engineer</option>
-              <option value="Engineer">Engineer</option>
-              <option value="Trainee">Trainee</option>
+              
             </select>
             <small className="form-hint">
               Select role to determine login method
@@ -585,8 +584,7 @@ function AuthForm() {
               <option value="Team Leader">Team Leader</option>
               <option value="Senior Engineer">Senior Engineer</option>
               <option value="Junior Engineer">Junior Engineer</option>
-              <option value="Engineer">Engineer</option>
-              <option value="Trainee">Trainee</option>
+              
             </select>
             <small className="form-hint">
               {role.includes('Manager') 

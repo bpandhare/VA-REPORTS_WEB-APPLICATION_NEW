@@ -569,18 +569,28 @@ export default function ActivityDisplay() {
                                   onClick={async () => {
                                     if (!(user?.role === 'Manager' || user?.role === 'Team Leader')) return;
                                     const identifier = report.engineerId || report.engineerName;
-                                    try {
-                                      setEngineerLoading(true)
-                                      const res = await fetch(`${endpoints.engineer}/${encodeURIComponent(identifier)}`, { headers: { Authorization: `Bearer ${token}` } })
-                                      if (!res.ok) throw new Error('Failed to fetch engineer')
-                                      const data = await res.json()
-                                      setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity })
-                                      setEngineerModalOpen(true)
-                                    } catch (e) {
-                                      console.error('Failed to fetch engineer:', e)
-                                    } finally {
-                                      setEngineerLoading(false)
-                                    }
+                                      try {
+                                        setEngineerLoading(true)
+                                        const url = `${endpoints.engineer}/${encodeURIComponent(identifier)}`
+                                        console.log('Fetching engineer info:', url)
+                                        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+                                        console.log('Engineer fetch status:', res.status)
+                                        const text = await res.text()
+                                        let data
+                                        try { data = JSON.parse(text) } catch { data = { _raw: text } }
+                                        console.log('Engineer fetch body:', data)
+                                        if (!res.ok) {
+                                          console.error('Engineer fetch failed:', res.status, data)
+                                          throw new Error('Failed to fetch engineer')
+                                        }
+                                        setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity || [] })
+                                        setEngineerModalOpen(true)
+                                      } catch (e) {
+                                        console.error('Failed to fetch engineer:', e)
+                                        setError('Unable to load engineer details. Check console for details.')
+                                      } finally {
+                                        setEngineerLoading(false)
+                                      }
                                   }}
                                 >{report.engineerName || 'Unknown'}</div>
                                 {report.engineerId && <small style={{ color: '#666' }}>ID: {report.engineerId}</small>}
@@ -626,13 +636,23 @@ export default function ActivityDisplay() {
                                     const identifier = report.engineerId || report.engineerName;
                                     try {
                                       setEngineerLoading(true)
-                                      const res = await fetch(`${endpoints.engineer}/${encodeURIComponent(identifier)}`, { headers: { Authorization: `Bearer ${token}` } })
-                                      if (!res.ok) throw new Error('Failed to fetch engineer')
-                                      const data = await res.json()
-                                      setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity })
+                                      const url = `${endpoints.engineer}/${encodeURIComponent(identifier)}`
+                                      console.log('Fetching engineer info:', url)
+                                      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+                                      console.log('Engineer fetch status:', res.status)
+                                      const text = await res.text()
+                                      let data
+                                      try { data = JSON.parse(text) } catch { data = { _raw: text } }
+                                      console.log('Engineer fetch body:', data)
+                                      if (!res.ok) {
+                                        console.error('Engineer fetch failed:', res.status, data)
+                                        throw new Error('Failed to fetch engineer')
+                                      }
+                                      setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity || [] })
                                       setEngineerModalOpen(true)
                                     } catch (e) {
                                       console.error('Failed to fetch engineer:', e)
+                                      setError('Unable to load engineer details. Check console for details.')
                                     } finally {
                                       setEngineerLoading(false)
                                     }
@@ -915,13 +935,23 @@ export default function ActivityDisplay() {
                               const identifier = a.engineerId || a.engineerName || a.username;
                               try {
                                 setEngineerLoading(true)
-                                const res = await fetch(`${endpoints.engineer}/${encodeURIComponent(identifier)}`, { headers: { Authorization: `Bearer ${token}` } })
-                                if (!res.ok) throw new Error('Failed to fetch engineer')
-                                const data = await res.json()
-                                setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity })
+                                const url = `${endpoints.engineer}/${encodeURIComponent(identifier)}`
+                                console.log('Fetching engineer info:', url)
+                                const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+                                console.log('Engineer fetch status:', res.status)
+                                const text = await res.text()
+                                let data
+                                try { data = JSON.parse(text) } catch { data = { _raw: text } }
+                                console.log('Engineer fetch body:', data)
+                                if (!res.ok) {
+                                  console.error('Engineer fetch failed:', res.status, data)
+                                  throw new Error('Failed to fetch engineer')
+                                }
+                                setSelectedEngineer({ ...data.user, recentActivity: data.recentActivity || [] })
                                 setEngineerModalOpen(true)
                               } catch (e) {
                                 console.error('Failed to fetch engineer:', e)
+                                setError('Unable to load engineer details. Check console for details.')
                               } finally {
                                 setEngineerLoading(false)
                               }
