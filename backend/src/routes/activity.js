@@ -391,9 +391,19 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
     const absentCount = activitiesStats[0]?.absent_count || 0;
 
     // Separate daily and hourly reports
-    const dailyReportsList = allRecords
-      .filter(act => (act.activity_type === 'daily' || act.activity_type === 'site_work' || act.activity_type === 'daily_report') && act.status !== 'leave')
-      .map(act => ({
+    // Build daily reports list from combined records, deduplicating by engineer name.
+    // Prefer entries with engineerId or source 'daily_report' to avoid showing phantom entries.
+    const dailyCandidates = allRecords.filter(act =>
+      (act.activity_type === 'daily' || act.activity_type === 'site_work' || act.activity_type === 'daily_report')
+      && (act.status !== 'leave' || isUserTeamLeaderOrManager)
+    );
+
+    const dailyMap = new Map();
+    dailyCandidates.forEach(act => {
+      const key = (act.engineer_name || '').toString().trim().toLowerCase();
+      if (!key) return;
+
+      const item = {
         engineerName: act.engineer_name,
         engineerId: act.engineer_id,
         projectName: act.project,
@@ -401,7 +411,27 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
         startTime: act.start_time,
         endTime: act.end_time,
         source: act.activity_type === 'daily_report' ? 'daily_report' : 'activity'
-      }));
+      };
+
+      const existing = dailyMap.get(key);
+      if (!existing) {
+        dailyMap.set(key, item);
+        return;
+      }
+
+      // Replace logic: prefer entries that have engineerId, or source 'daily_report', or non-empty project
+      const preferNew = (
+        (existing.engineerId == null && item.engineerId != null) ||
+        (existing.source !== 'daily_report' && item.source === 'daily_report') ||
+        ((existing.projectName == null || existing.projectName === 'N/A' || existing.projectName === '') && item.projectName && item.projectName !== 'N/A')
+      );
+
+      if (preferNew) {
+        dailyMap.set(key, item);
+      }
+    });
+
+    const dailyReportsList = Array.from(dailyMap.values());
 
     const hourlyReports = allRecords
       .filter(act => act.activity_type === 'hourly')

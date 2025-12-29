@@ -209,6 +209,10 @@ async function migrateDatabase() {
       { name: 'incharge', type: 'VARCHAR(120) DEFAULT ""' },
       { name: 'remark', type: 'TEXT' },
       { name: 'user_id', type: 'INT' },
+      { name: 'leave_status', type: "VARCHAR(20) DEFAULT NULL" },
+      { name: 'leave_approved_by', type: "VARCHAR(120) DEFAULT NULL" },
+      { name: 'leave_approved_at', type: 'TIMESTAMP NULL' },
+      { name: 'leave_approval_remark', type: 'TEXT' },
     ]
 
     for (const column of newColumns) {
@@ -226,18 +230,31 @@ async function migrateDatabase() {
       }
     }
 
-    // ADD THIS: Create index for leave_type
+    // Create index for leave_type (use plain CREATE INDEX and ignore duplicate-key errors)
     try {
-      await pool.execute(`
-        CREATE INDEX IF NOT EXISTS idx_leave_type 
-        ON daily_target_reports(location_type, leave_type, report_date)
-      `)
+      await pool.execute(`CREATE INDEX idx_leave_type ON daily_target_reports(location_type, leave_type, report_date)`)
       console.log('✓ Created idx_leave_type index')
     } catch (error) {
-      if (error.code === 'ER_DUP_KEYNAME') {
+      // MySQL may return different error codes for duplicate index; handle common cases
+      if (error.code === 'ER_DUP_KEYNAME' || error.errno === 1061) {
         console.log('Index idx_leave_type already exists')
       } else {
         console.error('Error creating idx_leave_type index:', error.message)
+      }
+    }
+
+    // Ensure updated_at column exists to avoid SELECT errors
+    try {
+      await pool.execute('ALTER TABLE daily_target_reports ADD COLUMN updated_at TIMESTAMP NULL DEFAULT NULL')
+      console.log('✓ Added updated_at column to daily_target_reports table')
+    } catch (error) {
+      if (error.code === 'ER_DUP_FIELDNAME') {
+        // Column already exists, that's fine
+      } else {
+        // Some MySQL variants return different codes; ignore duplicate-column errors
+        try {
+          // Try a safer approach: alter without IF NOT EXISTS may throw; ignore
+        } catch (e) {}
       }
     }
 
@@ -275,6 +292,17 @@ const limiter = rateLimit({
 
 // Apply rate limiting to API routes
 app.use('/api', limiter)
+
+// Temporary request logger for API debugging (logs method and path)
+app.use('/api', (req, res, next) => {
+  try {
+    const auth = req.headers.authorization ? '[auth]' : '[no-auth]'
+    console.log(`[API REQUEST] ${new Date().toISOString()} ${req.method} ${req.originalUrl} ${auth}`)
+  } catch (e) {
+    console.log('[API REQUEST] logging failed')
+  }
+  next()
+})
 
 // Compression middleware for production
 if (process.env.NODE_ENV === 'production') {
