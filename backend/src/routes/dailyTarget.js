@@ -624,6 +624,7 @@ router.get('/today', verifyToken, async (req, res) => {
   }
 })
 
+
 // ==================== POST ENDPOINT ====================
 
 router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
@@ -636,66 +637,26 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
     console.log('📝 User ID:', userId);
     console.log('📝 User Gender:', userGender);
     console.log('📝 Request body keys:', Object.keys(req.body));
-    console.log('📝 Request body values:', req.body);
-    console.log('📝 File uploaded:', req.file ? req.file.filename : 'No file');
-    console.log('📝 Location Type from body:', req.body.locationType);
-    console.log('📝 Leave Type from body:', req.body.leaveType);
-    console.log('📝 Incharge from body:', req.body.incharge);
+    console.log('📝 Request file:', req.file ? req.file.filename : 'No file');
 
-    // Destructure from req.body
-    const {
-      reportDate,
-      inTime,
-      outTime,
-      customerName,
-      customerPerson,
-      customerContact,
-      endCustomerName,
-      endCustomerPerson,
-      endCustomerContact,
-      projectNo,
-      locationType,
-      leaveType,
-      siteLocation,
-      locationLat,
-      locationLng,
-      dailyTargetPlanned,
-      dailyTargetAchieved,
-      additionalActivity,
-      whoAddedActivity,
-      dailyPendingTarget,
-      reasonPendingTarget,
-      problemFaced,
-      problemResolved,
-      onlineSupportRequired,
-      supportEngineerName,
-      siteStartDate,
-      siteEndDate,
-      incharge,
-      remark,
-    } = req.body;
+    // Parse form data
+    const formData = req.body;
+    console.log('📝 Form data received:', formData);
 
-    console.log('📝 Extracted locationType:', locationType);
-    console.log('📝 Extracted leaveType:', leaveType);
-    console.log('📝 Extracted reportDate:', reportDate);
-
-    // Enforce one report per user per day
-    const finalReportDate = reportDate || new Date().toISOString().slice(0, 10);
-    console.log('📝 Final report date:', finalReportDate);
+    // Set report date
+    const reportDate = formData.reportDate || new Date().toISOString().slice(0, 10);
+    console.log('📝 Report date:', reportDate);
 
     // Check if report already exists for this date
-    console.log('📝 Checking for existing report...');
     const [existing] = await pool.execute(
       `SELECT id, location_type, leave_type 
        FROM daily_target_reports 
        WHERE user_id = ? AND report_date = ? 
        LIMIT 1`,
-      [userId, finalReportDate]
+      [userId, reportDate]
     );
 
-    console.log('📝 Existing reports found:', existing.length);
-
-    if (existing && existing.length > 0) {
+    if (existing.length > 0) {
       const existingReport = existing[0];
       const existingType = existingReport.location_type === 'leave' 
         ? `${LEAVE_TYPES.find(lt => lt.id === existingReport.leave_type)?.name || existingReport.leave_type} leave`
@@ -705,15 +666,22 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
       
       return res.status(409).json({ 
         success: false,
-        message: `${existingType} already exists for ${finalReportDate}. Only one report allowed per day.` 
+        message: `${existingType} already exists for ${reportDate}. Only one report allowed per day.` 
       });
     }
 
-    // For leave location, validate leave type and date
-    if (locationType === 'leave') {
-      console.log('📝 Validating leave request...');
-      
-      if (!leaveType) {
+    // Validate location type
+    if (!formData.locationType) {
+      console.log('❌ Location type is required');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Location type is required' 
+      });
+    }
+
+    // Handle leave validation
+    if (formData.locationType === 'leave') {
+      if (!formData.leaveType) {
         console.log('❌ Leave type is required');
         return res.status(400).json({ 
           success: false,
@@ -721,44 +689,34 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
         });
       }
       
-      const leaveConfig = LEAVE_TYPES.find(lt => lt.id === leaveType);
+      const leaveConfig = LEAVE_TYPES.find(lt => lt.id === formData.leaveType);
       if (!leaveConfig) {
-        console.log('❌ Invalid leave type:', leaveType);
+        console.log('❌ Invalid leave type:', formData.leaveType);
         return res.status(400).json({ 
           success: false,
           message: 'Invalid leave type' 
         });
       }
       
-      console.log('📝 Leave config found:', leaveConfig.name);
-      
       // Check gender restriction
       if (leaveConfig.genderSpecific && leaveConfig.genderSpecific !== userGender) {
-        console.log('❌ Gender restriction:', leaveConfig.genderSpecific, '!=', userGender);
         return res.status(400).json({ 
           success: false,
           message: `This leave type is only available for ${leaveConfig.genderSpecific} employees` 
         });
       }
       
-      // Validate leave date (without weekend restriction)
-      if (finalReportDate) {
-        const dateValidation = validateLeaveDate(finalReportDate);
-        if (!dateValidation.valid) {
-          console.log('❌ Date validation failed:', dateValidation.message);
-          return res.status(400).json({ 
-            success: false,
-            message: dateValidation.message 
-          });
-        }
+      // Validate leave date
+      const dateValidation = validateLeaveDate(reportDate);
+      if (!dateValidation.valid) {
+        return res.status(400).json({ 
+          success: false,
+          message: dateValidation.message 
+        });
       }
       
-      // Check leave balance for specific type
-      const currentYear = new Date().getFullYear();
-      const reportYear = finalReportDate ? new Date(finalReportDate).getFullYear() : currentYear;
-      
-      console.log('📝 Checking leave balance for year:', reportYear);
-      
+      // Check leave balance
+      const reportYear = new Date(reportDate).getFullYear();
       if (leaveConfig.maxDays > 0) {
         const [leaveCount] = await pool.execute(
           `SELECT COUNT(*) as leaveCount 
@@ -767,126 +725,71 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
            AND location_type = 'leave' 
            AND leave_type = ?
            AND YEAR(report_date) = ?`,
-          [userId, leaveType, reportYear]
+          [userId, formData.leaveType, reportYear]
         );
         
         const usedLeaves = leaveCount[0]?.leaveCount || 0;
-        console.log('📝 Used leaves:', usedLeaves, 'Max allowed:', leaveConfig.maxDays);
         
         if (usedLeaves >= leaveConfig.maxDays) {
-          console.log('❌ Leave balance exhausted');
           return res.status(400).json({ 
             success: false,
             message: `No ${leaveConfig.name} leaves remaining for this year. Used: ${usedLeaves}/${leaveConfig.maxDays}` 
           });
         }
       }
-      
-      console.log('✅ Leave validation passed');
-    } else {
-      // For office/site locations, validate all required fields
-      console.log('📝 Validating site/office report...');
-      
-      const requiredFields = {
-        inTime,
-        outTime,
-        customerName,
-        customerPerson,
-        customerContact,
-        endCustomerName,
-        endCustomerPerson,
-        endCustomerContact,
-        projectNo,
-        locationType,
-        dailyTargetPlanned,
-        dailyTargetAchieved,
-        incharge
-      };
-      
-      const missingFields = Object.entries(requiredFields)
-        .filter(([key, value]) => !value)
-        .map(([key]) => key);
-      
-      if (missingFields.length > 0) {
-        console.log('❌ Missing required fields:', missingFields);
-        return res.status(400).json({
-          success: false,
-          message: 'All required fields must be filled',
-          missingFields
-        });
-      }
-      
-      console.log('✅ Site/office validation passed');
     }
 
     // Get user info for incharge field
-    let inchargeUsername = incharge;
-    if (!inchargeUsername) {
-      console.log('📝 Incharge not provided, getting from user info...');
+    let incharge = formData.incharge;
+    if (!incharge) {
       const [userInfo] = await pool.execute(
         'SELECT username FROM users WHERE id = ?',
         [userId]
       );
       
       if (userInfo.length > 0) {
-        inchargeUsername = userInfo[0].username;
-        console.log('📝 Using current user as incharge:', inchargeUsername);
+        incharge = userInfo[0].username;
       }
     }
 
-    // Set default values based on location type
-    let finalInTime = inTime;
-    let finalOutTime = outTime;
-    let finalCustomerName = customerName;
-    let finalCustomerPerson = customerPerson;
-    let finalCustomerContact = customerContact;
-    let finalEndCustomerName = endCustomerName;
-    let finalEndCustomerPerson = endCustomerPerson;
-    let finalEndCustomerContact = endCustomerContact;
-    let finalProjectNo = projectNo;
-    let finalDailyTargetPlanned = dailyTargetPlanned;
-    let finalDailyTargetAchieved = dailyTargetAchieved;
-    let finalIncharge = inchargeUsername;
-    let finalSiteStartDate = siteStartDate;
+    // Prepare data for database
+    const dbData = {
+      report_date: reportDate,
+      in_time: formData.locationType === 'leave' ? '00:00' : (formData.inTime || '00:00'),
+      out_time: formData.locationType === 'leave' ? '00:00' : (formData.outTime || '00:00'),
+      customer_name: formData.locationType === 'leave' ? 'N/A' : (formData.customerName || ''),
+      customer_person: formData.locationType === 'leave' ? 'N/A' : (formData.customerPerson || ''),
+      customer_contact: formData.locationType === 'leave' ? 'N/A' : (formData.customerContact || ''),
+      end_customer_name: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerName || ''),
+      end_customer_person: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerPerson || ''),
+      end_customer_contact: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerContact || ''),
+      project_no: formData.locationType === 'leave' ? 'N/A' : (formData.projectNo || ''),
+      location_type: formData.locationType,
+      leave_type: formData.leaveType || null,
+      site_location: formData.siteLocation || null,
+      location_lat: formData.locationLat || null,
+      location_lng: formData.locationLng || null,
+      mom_report_path: req.file ? req.file.path : null,
+      daily_target_planned: formData.locationType === 'leave' ? 'N/A' : (formData.dailyTargetPlanned || ''),
+      daily_target_achieved: formData.locationType === 'leave' ? 'N/A' : (formData.dailyTargetAchieved || ''),
+      additional_activity: formData.additionalActivity || null,
+      who_added_activity: formData.whoAddedActivity || null,
+      daily_pending_target: formData.dailyPendingTarget || null,
+      reason_pending_target: formData.reasonPendingTarget || null,
+      problem_faced: formData.problemFaced || null,
+      problem_resolved: formData.problemResolved || null,
+      online_support_required: formData.onlineSupportRequired || null,
+      support_engineer_name: formData.supportEngineerName || null,
+      site_start_date: formData.siteStartDate || (formData.locationType === 'leave' ? reportDate : new Date().toISOString().slice(0, 10)),
+      site_end_date: formData.siteEndDate || null,
+      incharge: incharge,
+      remark: formData.remark || null,
+      user_id: userId
+    };
 
-    if (locationType === 'leave') {
-      console.log('📝 Setting defaults for leave report...');
-      
-      finalInTime = finalInTime || '00:00';
-      finalOutTime = finalOutTime || '00:00';
-      finalCustomerName = finalCustomerName || 'N/A';
-      finalCustomerPerson = finalCustomerPerson || 'N/A';
-      finalCustomerContact = finalCustomerContact || 'N/A';
-      finalEndCustomerName = finalEndCustomerName || 'N/A';
-      finalEndCustomerPerson = finalEndCustomerPerson || 'N/A';
-      finalEndCustomerContact = finalEndCustomerContact || 'N/A';
-      finalProjectNo = finalProjectNo || 'N/A';
-      finalDailyTargetPlanned = finalDailyTargetPlanned || 'N/A';
-      finalDailyTargetAchieved = finalDailyTargetAchieved || 'N/A';
-      finalSiteStartDate = finalSiteStartDate || new Date().toISOString().slice(0, 10);
-    } else {
-      finalSiteStartDate = finalSiteStartDate || new Date().toISOString().slice(0, 10);
-    }
+    console.log('📝 Data prepared for database:', dbData);
 
-    console.log('📝 Final values prepared for database insertion');
-
-    // Validate location for site type
-    if (locationType === 'site' && (!siteLocation || !locationLat || !locationLng)) {
-      console.log('❌ Missing site location data');
-      return res.status(400).json({
-        success: false,
-        message: 'Site location must be captured for site location type',
-      });
-    }
-
-    // Get PDF file path if uploaded
-    const momReportPath = req.file ? req.file.path : null;
-    console.log('📝 MOM Report path:', momReportPath);
-
-    // Insert into database
-    console.log('📝 Executing database insert...');
-    
-    // FIXED: Remove leave_status from INSERT statement
+    // Insert into database - FIXED: Removed leave_status column
     const sql = `
       INSERT INTO daily_target_reports
       (report_date, in_time, out_time, customer_name, customer_person, customer_contact,
@@ -901,50 +804,47 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
     `;
     
     const params = [
-      finalReportDate,
-      finalInTime,
-      finalOutTime,
-      finalCustomerName,
-      finalCustomerPerson,
-      finalCustomerContact,
-      finalEndCustomerName,
-      finalEndCustomerPerson,
-      finalEndCustomerContact,
-      finalProjectNo,
-      locationType,
-      leaveType || null,
-      siteLocation || null,
-      locationLat || null,
-      locationLng || null,
-      momReportPath,
-      finalDailyTargetPlanned,
-      finalDailyTargetAchieved,
-      additionalActivity || null,
-      whoAddedActivity || null,
-      dailyPendingTarget || null,
-      reasonPendingTarget || null,
-      problemFaced || null,
-      problemResolved || null,
-      onlineSupportRequired || null,
-      supportEngineerName || null,
-      finalSiteStartDate,
-      siteEndDate || null,
-      finalIncharge,
-      remark || null,
-      userId
-      // REMOVED: leaveStatus
+      dbData.report_date,
+      dbData.in_time,
+      dbData.out_time,
+      dbData.customer_name,
+      dbData.customer_person,
+      dbData.customer_contact,
+      dbData.end_customer_name,
+      dbData.end_customer_person,
+      dbData.end_customer_contact,
+      dbData.project_no,
+      dbData.location_type,
+      dbData.leave_type,
+      dbData.site_location,
+      dbData.location_lat,
+      dbData.location_lng,
+      dbData.mom_report_path,
+      dbData.daily_target_planned,
+      dbData.daily_target_achieved,
+      dbData.additional_activity,
+      dbData.who_added_activity,
+      dbData.daily_pending_target,
+      dbData.reason_pending_target,
+      dbData.problem_faced,
+      dbData.problem_resolved,
+      dbData.online_support_required,
+      dbData.support_engineer_name,
+      dbData.site_start_date,
+      dbData.site_end_date,
+      dbData.incharge,
+      dbData.remark,
+      dbData.user_id
     ];
     
-    console.log('📝 SQL Params:', params);
+    console.log('📝 Executing SQL with', params.length, 'parameters');
     
     const [result] = await pool.execute(sql, params);
     console.log('✅ Daily target report inserted with ID:', result.insertId);
 
-    // ==================== CREATE ACTIVITY RECORD ====================
+    // Create activity record
     try {
       console.log('📝 Creating activity record...');
-      console.log('🔍 [DEBUG] locationType for activity:', locationType);
-      console.log('🔍 [DEBUG] leaveType for activity:', leaveType);
       
       const [userInfo] = await pool.execute(
         'SELECT username, employee_id FROM users WHERE id = ?',
@@ -952,71 +852,47 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
       );
       
       if (userInfo.length > 0) {
-        // Check for leave condition
-        const isLeave = locationType === 'leave';
-        
-        console.log('🔍 [DEBUG] isLeave:', isLeave);
-        console.log('🔍 [DEBUG] Final locationType:', locationType);
-        
-        // Set correct status based on locationType
+        const isLeave = dbData.location_type === 'leave';
         const activityStatus = isLeave ? 'leave' : 'present';
         const activityType = isLeave ? 'leave' : 'daily_report';
         
-        // For leave, use descriptive project name
         const activityProject = isLeave 
-          ? `On ${LEAVE_TYPES.find(lt => lt.id === leaveType)?.name || leaveType || 'Leave'}`  
-          : (finalEndCustomerName || finalCustomerName || 'No Project');
+          ? `On ${LEAVE_TYPES.find(lt => lt.id === dbData.leave_type)?.name || dbData.leave_type || 'Leave'}`  
+          : (dbData.end_customer_name || dbData.customer_name || 'No Project');
         
         const activityLocation = isLeave 
           ? 'Leave' 
-          : (siteLocation || locationType || 'Office');
+          : (dbData.site_location || dbData.location_type || 'Office');
         
         const activityTarget = isLeave 
-          ? `Leave Application - ${LEAVE_TYPES.find(lt => lt.id === leaveType)?.name || leaveType || 'Leave'}` 
-          : (finalDailyTargetAchieved || 'No target specified');
+          ? `Leave Application - ${LEAVE_TYPES.find(lt => lt.id === dbData.leave_type)?.name || dbData.leave_type || 'Leave'}` 
+          : (dbData.daily_target_achieved || 'No target specified');
         
-        // Include leave reason in problem field
-        const problemField = isLeave 
-          ? `Leave: ${LEAVE_TYPES.find(lt => lt.id === leaveType)?.name || leaveType || 'Leave'} - ${remark || 'No remark'}`
-          : (problemFaced || '');
-        
-        console.log('🔍 [DEBUG] Activity details:', {
-          status: activityStatus,
-          type: activityType,
-          project: activityProject,
-          location: activityLocation,
-          target: activityTarget,
-          problem: problemField
-        });
-        
-        // Insert into activities table with proper leave status
         await pool.execute(
           `INSERT INTO activities (
             date, time, engineer_name, engineer_id, project, location,
             activity_target, problem, status, start_time, end_time,
-            activity_type, logged_at, leave_reason
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            activity_type, logged_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
-            finalReportDate,
-            isLeave ? '00:00' : finalInTime,
+            dbData.report_date,
+            isLeave ? '00:00' : dbData.in_time,
             userInfo[0].username,
             userInfo[0].employee_id,
             activityProject,
             activityLocation,
             activityTarget,
-            problemField,
+            dbData.problem_faced || '',
             activityStatus,
-            isLeave ? '00:00' : finalInTime,
-            isLeave ? '00:00' : finalOutTime,
-            activityType,
-            isLeave ? `Leave: ${LEAVE_TYPES.find(lt => lt.id === leaveType)?.name || leaveType || 'Leave'}` : null
+            isLeave ? '00:00' : dbData.in_time,
+            isLeave ? '00:00' : dbData.out_time,
+            activityType
           ]
         );
-        console.log(`✅ Activity record created with status: '${activityStatus}', type: '${activityType}'`);
+        console.log(`✅ Activity record created`);
       }
     } catch (activityError) {
       console.warn('⚠️ Could not create activity record:', activityError.message);
-      console.warn('⚠️ Activity error stack:', activityError.stack);
     }
 
     console.log('✅ [DAILY-TARGET] POST request completed successfully');
@@ -1025,13 +901,17 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
       success: true,
       message: 'Daily target report saved successfully',
       id: result.insertId,
-      leaveType: locationType === 'leave' ? leaveType : null,
-      incharge: finalIncharge
+      locationType: dbData.location_type,
+      leaveType: dbData.leave_type,
+      reportDate: dbData.report_date
     });
     
   } catch (error) {
     console.error('❌ [DAILY-TARGET] POST Error:', error);
     console.error('❌ Error message:', error.message);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ SQL State:', error.sqlState);
+    console.error('❌ SQL Message:', error.sqlMessage);
     console.error('❌ Stack trace:', error.stack);
     
     // Delete uploaded file if there was an error
@@ -1048,6 +928,7 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
       success: false,
       message: 'Unable to save daily target report',
       error: error.message,
+      sqlError: error.sqlMessage,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   } finally {

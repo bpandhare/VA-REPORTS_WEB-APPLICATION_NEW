@@ -279,11 +279,12 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
         u.employee_id as engineer_id,
         d.end_customer_name as project,
         'daily_report' as activity_type,
-        d.daily_target_achieved as activity_target,
-        d.problem_faced as problem,
-        'present' as status,
-        d.location_type,
-        DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') as logged_at
+          d.daily_target_achieved as activity_target,
+          d.problem_faced as problem,
+          CASE WHEN d.location_type = 'leave' THEN 'leave' ELSE 'present' END as status,
+          d.leave_type as leave_reason,
+          d.location_type,
+          DATE_FORMAT(d.created_at, '%Y-%m-%d %H:%i:%s') as logged_at
       FROM daily_target_reports d
       LEFT JOIN users u ON (d.user_id = u.id OR d.incharge = u.username)
       WHERE DATE(d.report_date) = DATE(?)
@@ -345,7 +346,9 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
     let dailyReportsStatsQuery = `
       SELECT 
         COUNT(*) as total_daily_reports,
-        COUNT(DISTINCT user_id) as total_employees_daily_reports
+        COUNT(DISTINCT user_id) as total_employees_daily_reports,
+        SUM(CASE WHEN location_type = 'leave' THEN 1 ELSE 0 END) as leave_reports_count,
+        SUM(CASE WHEN location_type = 'leave' THEN 0 ELSE 1 END) as present_reports_count
       FROM daily_target_reports 
       WHERE DATE(report_date) = DATE(?)
         AND incharge IS NOT NULL
@@ -383,13 +386,13 @@ router.get('/date-summary', verifyTokenAndRole(), async (req, res) => {
       ...(dailyReports.map(d => d.engineer_name))
     ]).size;
 
-    const presentCount = (activitiesStats[0]?.present_count || 0) + (dailyReportsStats[0]?.total_daily_reports || 0);
-    const leaveCount = activitiesStats[0]?.leave_count || 0;
+    const presentCount = (activitiesStats[0]?.present_count || 0) + (dailyReportsStats[0]?.present_reports_count || 0);
+    const leaveCount = (activitiesStats[0]?.leave_count || 0) + (dailyReportsStats[0]?.leave_reports_count || 0);
     const absentCount = activitiesStats[0]?.absent_count || 0;
 
     // Separate daily and hourly reports
     const dailyReportsList = allRecords
-      .filter(act => act.activity_type === 'daily' || act.activity_type === 'site_work' || act.activity_type === 'daily_report')
+      .filter(act => (act.activity_type === 'daily' || act.activity_type === 'site_work' || act.activity_type === 'daily_report') && act.status !== 'leave')
       .map(act => ({
         engineerName: act.engineer_name,
         engineerId: act.engineer_id,
@@ -626,12 +629,12 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
       SELECT 
         COALESCE(u.username, d.incharge) as engineer_name,
         u.employee_id as engineer_id,
-        'present' as status,
+        CASE WHEN d.location_type = 'leave' THEN 'leave' ELSE 'present' END as status,
         d.end_customer_name as project,
         d.daily_target_achieved as activity_target,
         TIME_FORMAT(d.in_time, '%H:%i') as start_time,
         TIME_FORMAT(d.out_time, '%H:%i') as end_time,
-        NULL as leave_reason,
+        d.leave_type as leave_reason,
         d.problem_faced as problem
       FROM daily_target_reports d
       LEFT JOIN users u ON (d.user_id = u.id OR d.incharge = u.username)
@@ -694,9 +697,15 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
       }
     });
     
-    // Process daily reports (all are present)
+    // Process daily reports (respect reported status)
     dailyReports.forEach(emp => {
-      presentEmployees.push(emp.engineer_name);
+      if (emp.status === 'present') {
+        presentEmployees.push(emp.engineer_name);
+      } else if (emp.status === 'leave') {
+        leaveEmployees.push(emp.engineer_name);
+      } else if (emp.status === 'absent') {
+        absentEmployees.push(emp.engineer_name);
+      }
     });
     
     // Get unique employees
@@ -796,12 +805,12 @@ router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
         DATE(d.report_date) as report_date,
         COALESCE(u.username, d.incharge) as engineer_name,
         u.employee_id as engineer_id,
-        'present' as status,
+        CASE WHEN d.location_type = 'leave' THEN 'leave' ELSE 'present' END as status,
         d.end_customer_name as project,
         d.daily_target_achieved as activity_target,
         TIME_FORMAT(d.in_time, '%H:%i') as start_time,
         TIME_FORMAT(d.out_time, '%H:%i') as end_time,
-        NULL as leave_reason,
+        d.leave_type as leave_reason,
         d.problem_faced as problem
       FROM daily_target_reports d
       LEFT JOIN users u ON (d.user_id = u.id OR d.incharge = u.username)
@@ -917,13 +926,20 @@ router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
       const employeeKey = record.engineer_id || record.engineer_name;
       attendanceData[date].summary.totalEmployees.add(employeeKey);
       attendanceData[date].summary.totalActivities++;
-      attendanceData[date].summary.presentCount++; // Daily report = Present
-      
+      // Respect status from daily report (could be 'leave')
+      if (record.status === 'present') {
+        attendanceData[date].summary.presentCount++;
+      } else if (record.status === 'leave') {
+        attendanceData[date].summary.leaveCount++;
+      } else if (record.status === 'absent') {
+        attendanceData[date].summary.absentCount++;
+      }
+
       attendanceData[date].activities.push({
         engineerName: record.engineer_name,
         engineerId: record.engineer_id,
         project: record.project,
-        status: 'present', // Always present for daily report
+        status: record.status,
         activityTarget: record.activity_target,
         startTime: record.start_time,
         endTime: record.end_time,
@@ -1067,3 +1083,93 @@ router.post('/', async (req, res) => {
 })
 
 export default router
+
+// GET - Engineer info + recent activity/reports
+router.get('/engineer/:identifier', verifyTokenAndRole(), async (req, res) => {
+  try {
+    const { identifier } = req.params // could be employee_id or username or id
+
+    // Try to find user by employee_id, username, or id
+    const [users] = await pool.execute(
+      'SELECT id, username, employee_id, role, phone, email FROM users WHERE employee_id = ? OR username = ? OR id = ? LIMIT 1',
+      [identifier, identifier, identifier]
+    )
+
+    if (!users || users.length === 0) {
+      return res.status(404).json({ success: false, message: 'Engineer not found' })
+    }
+
+    const user = users[0]
+
+    // Get recent activities from activities table
+    const [activities] = await pool.execute(
+      `SELECT date, TIME_FORMAT(time, '%H:%i:%s') as time, project, location, activity_target, problem, status, activity_type, leave_reason, DATE_FORMAT(logged_at, '%Y-%m-%d %H:%i:%s') as logged_at
+       FROM activities
+       WHERE engineer_id = ? OR engineer_name = ?
+       ORDER BY date DESC, logged_at DESC
+       LIMIT 10`,
+      [user.employee_id, user.username]
+    )
+
+    // Get recent daily reports
+    const [reports] = await pool.execute(
+      `SELECT report_date as date, in_time, out_time, end_customer_name as project, daily_target_achieved as activity_target, location_type, leave_type, remark
+       FROM daily_target_reports
+       WHERE user_id = ? OR incharge = ?
+       ORDER BY report_date DESC
+       LIMIT 10`,
+      [user.id, user.username]
+    )
+
+    // Normalize and merge both sets, sort by date/logged_at
+    const normalizedActivities = activities.map(a => ({
+      date: a.date ? a.date.toISOString ? a.date.toISOString().slice(0,10) : a.date : null,
+      time: a.time,
+      project: a.project,
+      status: a.status,
+      type: a.activity_type || 'activity',
+      activityTarget: a.activity_target,
+      problem: a.problem,
+      leaveReason: a.leave_reason,
+      loggedAt: a.logged_at
+    }))
+
+    const normalizedReports = reports.map(r => ({
+      date: r.date,
+      time: r.in_time || null,
+      project: r.project,
+      status: r.location_type === 'leave' ? 'leave' : 'present',
+      type: 'daily_report',
+      activityTarget: r.activity_target,
+      problem: r.remark || null,
+      leaveReason: r.leave_type || null,
+      loggedAt: null
+    }))
+
+    const combined = [...normalizedActivities, ...normalizedReports]
+      .sort((a, b) => {
+        const da = a.loggedAt || (a.date ? a.date : '')
+        const db = b.loggedAt || (b.date ? b.date : '')
+        if (da > db) return -1
+        if (da < db) return 1
+        return 0
+      })
+      .slice(0, 10)
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        employeeId: user.employee_id,
+        role: user.role,
+        phone: user.phone,
+        email: user.email
+      },
+      recentActivity: combined
+    })
+  } catch (error) {
+    console.error('Failed to fetch engineer info:', error)
+    res.status(500).json({ success: false, message: 'Unable to fetch engineer info', error: error.message })
+  }
+})
