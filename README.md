@@ -48,3 +48,4 @@ View team reports in a calendar or list view.
 Approve or reject pending leave applications.
 
 Access consolidated reports.
+
