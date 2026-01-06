@@ -40,107 +40,51 @@ export default function ProjectForm({ onCreated, onClose, initial, isManager = f
 
   const isEdit = !!initial?.id
 
-  const handleSubmit = async (e) => {
-    e && e.preventDefault()
-    setError(null)
+// In ProjectForm.jsx - handleSubmit function
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  
+  // Show loading state
+  setIsSubmitting(true);
+  
+  try {
+    console.log('Submitting project update for ID:', projectId);
+    console.log('Form data:', formState);
     
-    // Validation
-    if (!name) return setError('Project name is required')
-    if (!customer) return setError('Please select a customer')
+    // Call API
+    const response = await updateProject(projectId, formState);
+    console.log('API Response:', response);
     
-    // Only managers can create projects
-    if (!isManager && !isEdit) {
-      return setError('Only managers can create new projects')
+    // Check if response has the expected structure
+    if (response.data && response.data.success) {
+      const updatedProject = response.data.project || response.data;
+      console.log('Updated project data:', updatedProject);
+      
+      // Show success message
+      toast.success(response.data.message || 'Project updated successfully!');
+      
+      // Call onSuccess callback if provided
+      if (onSuccess) {
+        onSuccess(updatedProject);
+      }
+      
+      // Close modal if needed
+      if (onClose) {
+        onClose();
+      }
+    } else {
+      // Handle API error
+      const errorMsg = response.data?.message || 'Failed to update project';
+      console.error('Update failed:', errorMsg);
+      toast.error(errorMsg);
     }
-    
-    setLoading(true)
-    
-    try {
-      // Prepare data WITHOUT budget
-      const projectData = {
-        name: name.trim(),
-        customer: customer,
-        description: description.trim(),
-        status: status,
-        priority: priority,
-        start_date: startDate || null,
-        end_date: endDate || null
-      }
-      
-      // Add collaborators only for new projects
-      if (!isEdit && collaboratorIds.length > 0) {
-        projectData.collaborator_ids = collaboratorIds
-      }
-      
-      console.log('Submitting project data:', projectData)
-      
-      let response
-      
-      if (isEdit) {
-        // Update existing project
-        response = await updateProject(initial.id, projectData)
-      } else {
-        // Create new project
-        response = await createProject(projectData)
-      }
-      
-      console.log('API Response:', response)
-      
-      if (response.data?.success) {
-        // Reset form
-        setName('')
-        setCustomer('')
-        setDescription('')
-        setCollaboratorIds([])
-        setStatus('active')
-        setPriority('medium')
-        setStartDate('')
-        setEndDate('')
-        
-        // Notify parent
-        if (onCreated) {
-          onCreated(response.data)
-        }
-        
-        // Close modal
-        if (onClose) {
-          onClose()
-        }
-        
-        alert('✅ Project saved successfully!')
-      } else {
-        setError(response.data?.message || 'Failed to save project')
-      }
-    } catch (err) {
-      console.error('Full error details:', err)
-      console.error('Error response:', err.response)
-      
-      if (err.response) {
-        switch (err.response.status) {
-          case 404:
-            setError('API endpoint not found (404). Please check if the server is running.')
-            break
-          case 500:
-            setError('Server error (500). Please check server logs.')
-            break
-          case 401:
-            setError('Unauthorized. Please login again.')
-            break
-          case 403:
-            setError('Permission denied. You may not have access.')
-            break
-          default:
-            setError(`Error ${err.response.status}: ${err.response.data?.message || 'Unknown error'}`)
-        }
-      } else if (err.request) {
-        setError('No response from server. Please check if the server is running.')
-      } else {
-        setError(`Request error: ${err.message}`)
-      }
-    } finally {
-      setLoading(false)
-    }
+  } catch (error) {
+    console.error('Error updating project:', error);
+    toast.error(error.message || 'An error occurred while updating the project');
+  } finally {
+    setIsSubmitting(false);
   }
+};
 
   const showCollaboratorField = isManager && !isEdit
   const showFullForm = isManager

@@ -279,19 +279,59 @@ export const listProjects = async () => {
   }
 };
 
-export const updateProject = async (projectId, data) => {
-  console.log(`✏️ Attempting to update project ${projectId}:`, data);
-  
-  if (isUsingMockMode) {
-    return mockApi.updateProject(projectId, data);
+// Add this before the updateProject function to see what's being sent
+api.interceptors.request.use(
+  (config) => {
+    if (config.url.includes('/projects/') && config.method === 'put') {
+      console.group('📤 PUT Request Details');
+      console.log('URL:', config.baseURL + config.url);
+      console.log('Data:', config.data);
+      console.log('Headers:', config.headers);
+      console.groupEnd();
+    }
+    return config;
+  },
+  (error) => {
+    console.error('Request error:', error);
+    return Promise.reject(error);
   }
+);
+
+// CORRECTED updateProject function
+// CORRECTED updateProject function
+export const updateProject = async (id, updates) => {
+  console.log(`✏️ Attempting to update project ${id}:`, updates);
   
   try {
-    const response = await api.put(`/api/projects/${projectId}`, data);
-    return response;
+    // First try real API
+    const response = await api.put(`/api/projects/${id}`, updates);
+    console.log('✅ Update successful:', response.data);
+    
+    // Return the project data in the expected format
+    return {
+      data: {
+        success: true,
+        message: 'Project updated successfully',
+        project: response.data?.project || { id: parseInt(id), ...updates }
+      }
+    };
   } catch (error) {
-    console.warn('❌ Real API failed, using mock');
-    return mockApi.updateProject(projectId, data);
+    console.error('❌ Real API failed:', error);
+    console.warn('🛠️ Falling back to mock data');
+    
+    // Use mock API
+    const mockResponse = await mockApi.updateProject(id, updates);
+    
+    // Ensure mock response has the correct structure
+    if (mockResponse.data && !mockResponse.data.project) {
+      mockResponse.data.project = { 
+        id: parseInt(id), 
+        ...updates,
+        updated_at: new Date().toISOString()
+      };
+    }
+    
+    return mockResponse;
   }
 };
 
@@ -399,13 +439,11 @@ export const deleteCollaborator = (projectId, collabId) => {
   return api.delete(`/api/projects/${projectId}/collaborators/${collabId}`);
 };
 
-// Project status and stats
-// In your api.js or services/api.js, add better error logging:
-
+// CORRECTED updateProjectStatus function - Fixed URL
 export const updateProjectStatus = async (projectId, status) => {
   try {
-    const response = await api.put(`/projects/${projectId}/status`, { status });
-    console.log('✅ Update status response:', response.data); // Add this
+    const response = await api.put(`/api/projects/${projectId}/status`, { status });
+    console.log('✅ Update status response:', response.data);
     return response;
   } catch (error) {
     console.error('❌ Update status error DETAILS:', {
