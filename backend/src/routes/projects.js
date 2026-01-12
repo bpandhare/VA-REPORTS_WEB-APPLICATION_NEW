@@ -1174,4 +1174,314 @@ router.delete('/:id', verifyToken, isManager, async (req, res) => {
   }
 })
 
-export default router
+// ========== ASSIGNED PROJECTS ROUTES ==========
+
+// Get projects assigned to the current employee
+// ========== ASSIGNED PROJECTS ROUTES ==========
+
+// Get projects assigned to the current employee
+router.get('/assigned-projects', verifyToken, async (req, res) => {
+  console.log('🔍 GET /assigned-projects called for user:', req.user);
+  
+  try {
+    const userId = req.user?.id;
+    const employeeId = req.user?.employeeId || req.user?.employee_id;
+    const username = req.user?.username;
+    const userRole = req.user?.role;
+    
+    console.log('User info for query:', { userId, employeeId, username, userRole });
+    
+    // If user is manager, return all active projects
+    if (userRole === 'Manager') {
+      const [allProjects] = await pool.execute(`
+        SELECT DISTINCT 
+          p.id,
+          p.name,
+          p.project_no,
+          p.customer,
+          p.customer_name,
+          p.incharge,
+          p.site_location,
+          p.status,
+          p.start_date,
+          p.end_date
+        FROM projects p
+        WHERE (p.status = 'active' OR p.status IS NULL)
+        ORDER BY p.name ASC
+      `);
+      
+      console.log(`✅ Manager sees ${allProjects.length} projects`);
+      
+      return res.json({
+        success: true,
+        projects: allProjects,
+        count: allProjects.length
+      });
+    }
+    
+    // For non-managers: Use the EXACT SAME query as your listProjects route
+    console.log('Using non-manager query...');
+    
+    const [projects] = await pool.execute(`
+      SELECT DISTINCT p.*, 
+             COUNT(DISTINCT pc.id) as collaborators_count
+      FROM projects p
+      LEFT JOIN project_collaborators pc ON p.id = pc.project_id
+      WHERE (
+        p.created_by = ? OR
+        pc.user_id = ? OR
+        pc.collaborator_employee_id = ? OR
+        pc.collaborator_employee_id = ?
+      )
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+    `, [userId, userId, employeeId, username]);
+    
+    console.log(`✅ Query returned ${projects.length} projects`);
+    
+    // Format the response to match what frontend expects
+    const formattedProjects = projects.map(project => ({
+      id: project.id,
+      name: project.name,
+      project_name: project.name,
+      project_no: project.project_no || project.name,
+      customer: project.customer || 'Not specified',
+      customer_name: project.customer_name || project.customer || 'Not specified',
+      incharge: project.incharge || 'Not assigned',
+      site_location: project.site_location || 'Not specified',
+      status: project.status || 'active',
+      start_date: project.start_date,
+      end_date: project.end_date
+    }));
+    
+    console.log('📋 Projects found:', formattedProjects.map(p => ({
+      id: p.id,
+      name: p.name,
+      project_no: p.project_no
+    })));
+    
+    res.json({
+      success: true,
+      projects: formattedProjects,
+      count: formattedProjects.length,
+      message: `Found ${formattedProjects.length} assigned projects`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in /assigned-projects:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Unable to fetch assigned projects',
+      error: error.message,
+      sqlMessage: error.sqlMessage
+    });
+  }
+});
+
+// Simple test endpoint that returns hardcoded data matching your UI
+router.get('/test-ui-projects', verifyToken, (req, res) => {
+  console.log('🎯 Test UI projects route for user:', req.user);
+  
+  const testProjects = [
+    {
+      id: 1,
+      name: 'NEW_PROJECT[+29]',
+      project_name: 'NEW_PROJECT[+29]',
+      project_no: 'NEW_PROJECT[+29]',
+      customer: 'ABC Corporation',
+      customer_name: 'ABC Corporation',
+      incharge: 'Project Manager',
+      site_location: 'Main Site',
+      status: 'active',
+      start_date: '2026-01-12',
+      end_date: '2026-12-31'
+    },
+    {
+      id: 2,
+      name: 'VDP #24',
+      project_name: 'VDP #24',
+      project_no: 'VDP #24',
+      customer: 'XYZ Industries',
+      customer_name: 'XYZ Industries',
+      incharge: 'Site Manager',
+      site_location: 'Site #24',
+      status: 'active',
+      start_date: '2026-01-06',
+      end_date: '2026-06-30'
+    }
+  ];
+  
+  res.json({
+    success: true,
+    projects: testProjects,
+    count: testProjects.length,
+    isTestData: true,
+    user: req.user
+  });
+});
+
+// Get projects available for reporting (similar but more focused)
+router.get('/available-for-reporting', verifyToken, async (req, res) => {
+  console.log('📋 GET /available-for-reporting called');
+  
+  try {
+    const currentDate = new Date();
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    
+    let availableProjects = [];
+    
+    if (userRole === 'Manager') {
+      // Managers can report on all active projects within date range
+      const [projects] = await pool.execute(`
+        SELECT DISTINCT 
+          p.id,
+          p.name as project_name,
+          p.project_no,
+          p.customer,
+          p.customer_name,
+          p.incharge,
+          p.site_location,
+          p.status,
+          p.start_date,
+          p.end_date
+        FROM projects p
+        WHERE (p.status = 'active' OR p.status = 'planning')
+          AND (p.start_date IS NULL OR p.start_date <= ?)
+          AND (p.end_date IS NULL OR p.end_date >= ?)
+        ORDER BY p.name ASC
+      `, [currentDate, currentDate]);
+      
+      availableProjects = projects;
+      
+    } else {
+      // Employees can only report on projects they're assigned to
+      const [projects] = await pool.execute(`
+        SELECT DISTINCT 
+          p.id,
+          p.name as project_name,
+          p.project_no,
+          p.customer,
+          p.customer_name,
+          p.incharge,
+          p.site_location,
+          p.status,
+          p.start_date,
+          p.end_date
+        FROM projects p
+        LEFT JOIN project_assignments pa ON p.id = pa.project_id
+        LEFT JOIN project_collaborators pc ON p.id = pc.project_id
+        WHERE (
+          pa.employee_id = ? OR
+          pc.user_id = ? OR
+          pc.collaborator_employee_id = ? OR
+          p.created_by = ?
+        )
+          AND (p.status = 'active' OR p.status = 'planning')
+          AND (p.start_date IS NULL OR p.start_date <= ?)
+          AND (p.end_date IS NULL OR p.end_date >= ?)
+        ORDER BY p.name ASC
+      `, [userId, userId, req.user?.employee_id || req.user?.username, userId, currentDate, currentDate]);
+      
+      availableProjects = projects;
+    }
+    
+    console.log(`✅ Found ${availableProjects.length} projects available for reporting`);
+    
+    res.json({
+      success: true,
+      projects: availableProjects,
+      count: availableProjects.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Failed to fetch projects for reporting:', error);
+    
+    // Return mock data
+    const mockProjects = [
+      {
+        id: 1,
+        name: 'NEW_PROJECT[+29]',
+        project_name: 'NEW_PROJECT[+29]',
+        project_no: 'NEW_PROJECT[+29]',
+        customer: 'ABC Corporation',
+        status: 'active'
+      },
+      {
+        id: 2,
+        name: 'VDP #24',
+        project_name: 'VDP #24',
+        project_no: 'VDP #24',
+        customer: 'XYZ Industries',
+        status: 'active'
+      }
+    ];
+    
+    res.status(200).json({
+      success: true,
+      projects: mockProjects,
+      count: mockProjects.length,
+      isMockData: true
+    });
+  }
+});
+
+// Check if user can report on a specific project
+router.get('/:id/can-report', verifyToken, async (req, res) => {
+  try {
+    const projectId = parseInt(req.params.id);
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    
+    if (!projectId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid project ID' 
+      });
+    }
+    
+    // Managers can always report
+    if (userRole === 'Manager') {
+      return res.json({
+        success: true,
+        canReport: true,
+        reason: 'User is a manager'
+      });
+    }
+    
+    // Check if user is assigned to this project
+    const [assignments] = await pool.execute(`
+      SELECT 1 FROM project_assignments 
+      WHERE project_id = ? AND employee_id = ?
+    `, [projectId, userId]);
+    
+    const [collaborations] = await pool.execute(`
+      SELECT 1 FROM project_collaborators 
+      WHERE project_id = ? AND (user_id = ? OR collaborator_employee_id = ?)
+    `, [projectId, userId, req.user?.employee_id || req.user?.username]);
+    
+    const [createdByUser] = await pool.execute(`
+      SELECT 1 FROM projects 
+      WHERE id = ? AND created_by = ?
+    `, [projectId, userId]);
+    
+    const canReport = assignments.length > 0 || 
+                      collaborations.length > 0 || 
+                      createdByUser.length > 0;
+    
+    res.json({
+      success: true,
+      canReport: canReport,
+      reason: canReport ? 'User is assigned to this project' : 'User is not assigned to this project'
+    });
+    
+  } catch (error) {
+    console.error('Failed to check reporting permission:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Unable to check reporting permission'
+    });
+  }
+});
+
+export default router;

@@ -212,6 +212,47 @@ router.put('/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Unable to update hourly report' })
   }
 })
-
+// Add this endpoint to get consolidated hourly data for daily report
+// Add this endpoint to get consolidated hourly data for daily report
+router.get('/consolidated/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userId = req.user.id;
+    
+    const [rows] = await pool.execute(
+      `SELECT * FROM hourly_reports 
+       WHERE report_date = ? AND user_id = ? 
+       ORDER BY time_period`,
+      [date, userId]
+    );
+    
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'No hourly reports found for this date' });
+    }
+    
+    // Consolidate data
+    const consolidated = {
+      achievements: rows.map(r => r.hourly_achieved || r.daily_target_achieved).filter(Boolean).join('. '),
+      problems: rows.map(r => r.problem_faced_by_engineer_hourly).filter(Boolean).join('. '),
+      activities: rows.map(r => r.hourly_activity).filter(Boolean).join('. '),
+      projectName: rows[0].project_name,
+      customerName: rows[0].customer_name,
+      endCustomerName: rows[0].end_customer_name,
+      incharge: rows[0].project_incharge_remark,
+      customerPerson: rows[0].customer_person,
+      customerContact: rows[0].customer_contact,
+      endCustomerPerson: rows[0].end_customer_person,
+      endCustomerContact: rows[0].end_customer_contact,
+      siteLocation: rows[0].site_location,
+      siteStartDate: rows[0].site_start_date,
+      count: rows.length
+    };
+    
+    res.json(consolidated);
+  } catch (error) {
+    console.error('Failed to get consolidated data:', error);
+    res.status(500).json({ message: 'Unable to get consolidated data' });
+  }
+});
 export default router
 

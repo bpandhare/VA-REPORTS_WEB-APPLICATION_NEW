@@ -1,3 +1,4 @@
+// At the top of ProjectDetails.jsx
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { 
@@ -9,7 +10,14 @@ import {
   deleteProjectFile,
   getProjectTasks,
   createTask,
-  updateTaskStatus
+  updateTaskStatus,
+  // New imports for assignments and reporting
+  getEmployeeAssignments,
+  assignProjectToEmployees,
+  getProjectReports,
+  submitDailyReport,
+  submitHourlyReport,
+  getEmployeesList
 } from '../services/api'
 import { useAuth } from './AuthContext'
 import './ProjectDetails.css'
@@ -59,6 +67,40 @@ const ProjectDetails = () => {
   const [updateStatus, setUpdateStatus] = useState('on_track')
   const [recentContributions, setRecentContributions] = useState([])
 
+  // New states for assignment and reporting
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [showReportModal, setShowReportModal] = useState(false)
+  const [reportType, setReportType] = useState('daily')
+  const [selectedEmployees, setSelectedEmployees] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [assignmentLoading, setAssignmentLoading] = useState(false)
+  const [assignedEmployees, setAssignedEmployees] = useState([])
+  const [projectReports, setProjectReports] = useState([])
+  const [showViewReports, setShowViewReports] = useState(false)
+
+  // Report states
+  const [dailyReport, setDailyReport] = useState({
+    date: new Date().toISOString().split('T')[0],
+    hoursWorked: 8,
+    tasksCompleted: '',
+    challenges: '',
+    nextDayPlan: '',
+    materialsUsed: '',
+    equipmentUsed: '',
+    progressPercentage: 0
+  })
+  
+  const [hourlyReport, setHourlyReport] = useState({
+    date: new Date().toISOString().split('T')[0],
+    startTime: '09:00',
+    endTime: '10:00',
+    taskDescription: '',
+    workDetails: '',
+    materialsUsed: '',
+    equipmentUsed: '',
+    issues: ''
+  })
+
   useEffect(() => {
     console.log('ProjectDetails mounted with ID:', id)
     console.log('Current user:', user)
@@ -79,7 +121,15 @@ const ProjectDetails = () => {
       console.log('Starting to fetch project details for ID:', id)
       
       // Fetch all data in parallel
-      const [projectRes, collaboratorsRes, filesRes, tasksRes] = await Promise.all([
+      const [
+        projectRes, 
+        collaboratorsRes, 
+        filesRes, 
+        tasksRes, 
+        assignmentsRes,
+        reportsRes,
+        employeesRes
+      ] = await Promise.all([
         getProject(id).catch(err => {
           console.error('getProject error:', err)
           return { data: { success: false, message: 'Failed to fetch project' } }
@@ -95,6 +145,18 @@ const ProjectDetails = () => {
         getProjectTasks(id).catch(err => {
           console.error('getProjectTasks error:', err)
           return { data: { success: false, message: 'Failed to fetch tasks' } }
+        }),
+        getEmployeeAssignments(id).catch(err => {
+          console.error('getEmployeeAssignments error:', err)
+          return { data: { success: false, message: 'Failed to fetch assignments' } }
+        }),
+        getProjectReports(id).catch(err => {
+          console.error('getProjectReports error:', err)
+          return { data: { success: false, message: 'Failed to fetch reports' } }
+        }),
+        getEmployeesList().catch(err => {
+          console.error('getEmployeesList error:', err)
+          return { data: { success: false, message: 'Failed to fetch employees' } }
         })
       ])
 
@@ -102,6 +164,9 @@ const ProjectDetails = () => {
       console.log('Collaborators response:', collaboratorsRes.data)
       console.log('Files response:', filesRes.data)
       console.log('Tasks response:', tasksRes.data)
+      console.log('Assignments response:', assignmentsRes.data)
+      console.log('Reports response:', reportsRes.data)
+      console.log('Employees response:', employeesRes.data)
 
       if (projectRes.data?.success) {
         setProject(projectRes.data.project)
@@ -127,6 +192,21 @@ const ProjectDetails = () => {
         console.log('Tasks set:', tasksRes.data.tasks.length)
         console.log('Task stats:', tasksRes.data.stats)
       }
+
+      if (assignmentsRes.data?.success) {
+        setAssignedEmployees(assignmentsRes.data.assignments || [])
+        console.log('Assigned employees:', assignmentsRes.data.assignments)
+      }
+
+      if (reportsRes.data?.success) {
+        setProjectReports(reportsRes.data.reports || [])
+        console.log('Project reports:', reportsRes.data.reports)
+      }
+
+      if (employeesRes.data?.success) {
+        setEmployees(employeesRes.data.employees || [])
+        console.log('All employees:', employeesRes.data.employees)
+      }
     } catch (error) {
       console.error('Failed to fetch project details:', error)
       setError(error.message || 'An unexpected error occurred')
@@ -137,28 +217,72 @@ const ProjectDetails = () => {
 
   const fetchRecentContributions = async () => {
     try {
-      // You'll need to create this API endpoint or use existing data
-      // For now, we'll simulate with existing data
-      const mockContributions = [
-        {
-          id: 1,
+      // Combine recent activities from different sources
+      const contributions = []
+      
+      // Add recent file uploads
+      files.slice(0, 3).forEach(file => {
+        contributions.push({
+          id: `file_${file.id}`,
           type: 'file',
-          userName: user?.username || 'User',
-          content: 'Uploaded project specification document',
-          time: '2 hours ago'
-        },
-        {
-          id: 2,
-          type: 'update',
-          userName: 'John Doe',
-          content: 'Completed site inspection and submitted report',
-          time: '1 day ago'
+          userName: file.uploaded_by_name || 'Unknown',
+          content: `Uploaded ${file.name}`,
+          time: formatRelativeTime(file.uploaded_at),
+          icon: '📎'
+        })
+      })
+      
+      // Add recent task updates
+      tasks.slice(0, 3).forEach(task => {
+        if (task.updated_at) {
+          contributions.push({
+            id: `task_${task.id}`,
+            type: 'task',
+            userName: task.assigned_to_name || 'Unknown',
+            content: `Updated task: ${task.title} (${task.status})`,
+            time: formatRelativeTime(task.updated_at),
+            icon: '✅'
+          })
         }
-      ]
-      setRecentContributions(mockContributions)
+      })
+      
+      // Add recent reports
+      projectReports.slice(0, 3).forEach(report => {
+        contributions.push({
+          id: `report_${report.id}`,
+          type: 'report',
+          userName: report.employee_name || 'Manager',
+          content: `Submitted ${report.report_type} report`,
+          time: formatRelativeTime(report.created_at),
+          icon: report.report_type === 'daily' ? '📅' : '⏰'
+        })
+      })
+      
+      // Sort by time (newest first)
+      contributions.sort((a, b) => new Date(b.time) - new Date(a.time))
+      
+      setRecentContributions(contributions)
     } catch (error) {
       console.error('Failed to fetch contributions:', error)
     }
+  }
+
+  const formatRelativeTime = (dateString) => {
+    if (!dateString) return 'Recently'
+    
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now - date
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMins / 60)
+    const diffDays = Math.floor(diffHours / 24)
+    
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    
+    return formatDate(dateString)
   }
 
   const handleQuickUpdate = async (e) => {
@@ -294,6 +418,112 @@ const ProjectDetails = () => {
     }
   }
 
+  // New functions for assignment and reporting
+  const handleAssignProject = async () => {
+    if (selectedEmployees.length === 0) {
+      alert('Please select at least one employee')
+      return
+    }
+
+    setAssignmentLoading(true)
+    try {
+      const assignmentData = {
+        project_id: id,
+        employee_ids: selectedEmployees,
+        start_date: new Date().toISOString().split('T')[0],
+        end_date: project?.end_date || null,
+        reporting_required: true
+      }
+
+      const res = await assignProjectToEmployees(assignmentData)
+      if (res.data?.success) {
+        alert('✅ Project assigned successfully!')
+        setShowAssignModal(false)
+        setSelectedEmployees([])
+        fetchProjectDetails()
+      }
+    } catch (error) {
+      console.error('Failed to assign project:', error)
+      alert('Failed to assign project. Please try again.')
+    } finally {
+      setAssignmentLoading(false)
+    }
+  }
+
+  const handleSubmitDailyReport = async () => {
+    try {
+      const reportData = {
+        project_id: id,
+        date: dailyReport.date,
+        hours_worked: dailyReport.hoursWorked,
+        tasks_completed: dailyReport.tasksCompleted,
+        challenges: dailyReport.challenges,
+        next_day_plan: dailyReport.nextDayPlan,
+        materials_used: dailyReport.materialsUsed,
+        equipment_used: dailyReport.equipmentUsed,
+        progress_percentage: dailyReport.progressPercentage
+      }
+
+      const res = await submitDailyReport(reportData)
+      if (res.data?.success) {
+        alert('✅ Daily report submitted successfully!')
+        setShowReportModal(false)
+        // Reset form
+        setDailyReport({
+          date: new Date().toISOString().split('T')[0],
+          hoursWorked: 8,
+          tasksCompleted: '',
+          challenges: '',
+          nextDayPlan: '',
+          materialsUsed: '',
+          equipmentUsed: '',
+          progressPercentage: 0
+        })
+        fetchProjectDetails()
+      }
+    } catch (error) {
+      console.error('Failed to submit daily report:', error)
+      alert('Failed to submit report. Please try again.')
+    }
+  }
+
+  const handleSubmitHourlyReport = async () => {
+    try {
+      const reportData = {
+        project_id: id,
+        date: hourlyReport.date,
+        start_time: hourlyReport.startTime,
+        end_time: hourlyReport.endTime,
+        task_description: hourlyReport.taskDescription,
+        work_details: hourlyReport.workDetails,
+        materials_used: hourlyReport.materialsUsed,
+        equipment_used: hourlyReport.equipmentUsed,
+        issues: hourlyReport.issues
+      }
+
+      const res = await submitHourlyReport(reportData)
+      if (res.data?.success) {
+        alert('✅ Hourly report submitted successfully!')
+        setShowReportModal(false)
+        // Reset form
+        setHourlyReport({
+          date: new Date().toISOString().split('T')[0],
+          startTime: '09:00',
+          endTime: '10:00',
+          taskDescription: '',
+          workDetails: '',
+          materialsUsed: '',
+          equipmentUsed: '',
+          issues: ''
+        })
+        fetchProjectDetails()
+      }
+    } catch (error) {
+      console.error('Failed to submit hourly report:', error)
+      alert('Failed to submit report. Please try again.')
+    }
+  }
+
   // Format date function
   const formatDate = (dateString) => {
     if (!dateString) return 'Not set'
@@ -330,6 +560,18 @@ const ProjectDetails = () => {
     }
   }
 
+  // Get status color
+  const getStatusColor = (status) => {
+    switch (status?.toLowerCase()) {
+      case 'active': return '#10B981'
+      case 'completed': return '#3B82F6'
+      case 'overdue': return '#EF4444'
+      case 'planning': return '#F59E0B'
+      case 'on-hold': return '#6B7280'
+      default: return '#6B7280'
+    }
+  }
+
   if (loading) {
     return (
       <div className="project-details-loading">
@@ -360,6 +602,7 @@ const ProjectDetails = () => {
 
   const isManager = user?.role === 'Manager'
   const isCollaborator = collaborators.some(c => c.user_id === user?.id)
+  const isAssignedEmployee = assignedEmployees.some(emp => emp.employee_id === user?.id)
 
   return (
     <div className="project-details-container">
@@ -371,7 +614,14 @@ const ProjectDetails = () => {
           </button>
           <h1>{project.name}</h1>
           <div className="project-meta">
-            <span className={`project-status ${project.status || 'active'}`}>
+            <span 
+              className="project-status" 
+              style={{ 
+                backgroundColor: `${getStatusColor(project.status)}20`, 
+                color: getStatusColor(project.status),
+                border: `1px solid ${getStatusColor(project.status)}`
+              }}
+            >
               {project.status?.toUpperCase() || 'ACTIVE'}
             </span>
             <span className="project-id">ID: #{project.id}</span>
@@ -380,27 +630,82 @@ const ProjectDetails = () => {
                 ? formatDate(project.created_at)
                 : 'Date not available'}
             </span>
+            {assignedEmployees.length > 0 && (
+              <span className="assignment-info">
+                👥 Assigned to {assignedEmployees.length} employee(s)
+              </span>
+            )}
           </div>
         </div>
         
-        {isManager && (
-          <div className="status-actions">
-            <select 
-              value={project.status || 'active'} 
-              onChange={(e) => handleStatusUpdate(e.target.value)}
-              className="status-select"
-            >
-              <option value="active">Active</option>
-              <option value="in-progress">In Progress</option>
-              <option value="on-hold">On Hold</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+        <div className="header-actions">
+          {isManager && (
+            <div className="status-actions">
+              <select 
+                value={project.status || 'active'} 
+                onChange={(e) => handleStatusUpdate(e.target.value)}
+                className="status-select"
+              >
+                <option value="planning">Planning</option>
+                <option value="active">Active</option>
+                <option value="on-hold">On Hold</option>
+                <option value="completed">Completed</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </div>
+          )}
+          
+          {/* Quick Action Buttons */}
+          <div className="quick-action-buttons">
+            {isManager && (
+              <button 
+                className="action-button assign-btn"
+                onClick={() => setShowAssignModal(true)}
+                title="Assign to Employees"
+              >
+                👥 Assign Employees
+              </button>
+            )}
+            
+            {(isManager || isAssignedEmployee || isCollaborator) && (
+              <>
+                <button 
+                  className="action-button report-btn"
+                  onClick={() => {
+                    setReportType('daily')
+                    setShowReportModal(true)
+                  }}
+                  title="Submit Daily Report"
+                >
+                  📅 Daily Report
+                </button>
+                <button 
+                  className="action-button report-btn"
+                  onClick={() => {
+                    setReportType('hourly')
+                    setShowReportModal(true)
+                  }}
+                  title="Submit Hourly Report"
+                >
+                  ⏰ Hourly Report
+                </button>
+              </>
+            )}
+            
+            {projectReports.length > 0 && (
+              <button 
+                className="action-button reports-btn"
+                onClick={() => setShowViewReports(true)}
+                title="View Reports"
+              >
+                📊 View Reports ({projectReports.length})
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Project Details Section - ADDED */}
+      {/* Project Details Section */}
       <div className="project-details-section">
         <div className="details-grid">
           {/* Customer Info */}
@@ -444,6 +749,47 @@ const ProjectDetails = () => {
               </p>
             </div>
           </div>
+
+          {/* Task Progress */}
+          <div className="detail-card">
+            <div className="detail-icon">📊</div>
+            <div className="detail-content">
+              <h4>Progress</h4>
+              <div className="progress-container">
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${taskStats.completionPercentage}%` }}
+                  ></div>
+                </div>
+                <span className="progress-text">{taskStats.completionPercentage}%</span>
+              </div>
+              <p className="progress-details">
+                {taskStats.completed || 0}/{taskStats.total || 0} tasks completed
+              </p>
+            </div>
+          </div>
+
+          {/* Assigned Employees */}
+          <div className="detail-card">
+            <div className="detail-icon">👥</div>
+            <div className="detail-content">
+              <h4>Assigned Employees</h4>
+              <p className="detail-value">{assignedEmployees.length}</p>
+              <div className="employee-tags">
+                {assignedEmployees.slice(0, 3).map(emp => (
+                  <span key={emp.employee_id} className="employee-tag">
+                    {emp.employee_name}
+                  </span>
+                ))}
+                {assignedEmployees.length > 3 && (
+                  <span className="employee-tag-more">
+                    +{assignedEmployees.length - 3} more
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -477,9 +823,15 @@ const ProjectDetails = () => {
           className={`tab-button ${activeTab === 'team' ? 'active' : ''}`}
           onClick={() => setActiveTab('team')}
         >
-          Team ({collaborators.length})
+          Team ({collaborators.length + assignedEmployees.length})
         </button>
-        {(isManager || isCollaborator) && (
+        <button 
+          className={`tab-button ${activeTab === 'reports' ? 'active' : ''}`}
+          onClick={() => setActiveTab('reports')}
+        >
+          Reports ({projectReports.length})
+        </button>
+        {(isManager || isCollaborator || isAssignedEmployee) && (
           <button 
             className={`tab-button ${activeTab === 'contribute' ? 'active' : ''}`}
             onClick={() => setActiveTab('contribute')}
@@ -497,7 +849,7 @@ const ProjectDetails = () => {
             <div className="stats-grid">
               <div className="stat-card">
                 <h4>Team Members</h4>
-                <div className="stat-value">{collaborators.length}</div>
+                <div className="stat-value">{collaborators.length + assignedEmployees.length}</div>
                 <div className="stat-label">Active collaborators</div>
               </div>
               <div className="stat-card">
@@ -518,6 +870,16 @@ const ProjectDetails = () => {
                     : 'N/A'}
                 </div>
                 <div className="stat-label">Since creation</div>
+              </div>
+              <div className="stat-card">
+                <h4>Assigned Employees</h4>
+                <div className="stat-value">{assignedEmployees.length}</div>
+                <div className="stat-label">For reporting</div>
+              </div>
+              <div className="stat-card">
+                <h4>Reports Submitted</h4>
+                <div className="stat-value">{projectReports.length}</div>
+                <div className="stat-label">Total reports</div>
               </div>
             </div>
 
@@ -553,9 +915,18 @@ const ProjectDetails = () => {
                   <span className="summary-label">Created:</span>
                   <span className="summary-value">{formatDate(project.created_at)}</span>
                 </div>
+                <div className="summary-item">
+                  <span className="summary-label">Status:</span>
+                  <span className="summary-value">{project.status || 'Active'}</span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">Reporting Required:</span>
+                  <span className="summary-value">{project.requires_reporting ? 'Yes' : 'No'}</span>
+                </div>
               </div>
             </div>
 
+            {/* Recent Files */}
             <div className="recent-files">
               <h3>Recent Files</h3>
               {files.slice(0, 5).map(file => (
@@ -565,7 +936,7 @@ const ProjectDetails = () => {
                     <div className="file-name">{file.name}</div>
                     <div className="file-meta">
                       Uploaded by {file.uploaded_by_name || 'Unknown'} • {file.uploaded_at 
-                        ? formatDate(file.uploaded_at)
+                        ? formatRelativeTime(file.uploaded_at)
                         : 'Unknown date'}
                     </div>
                   </div>
@@ -582,6 +953,31 @@ const ProjectDetails = () => {
                 <p className="no-files">No files uploaded yet.</p>
               )}
             </div>
+
+            {/* Recent Reports */}
+            {projectReports.length > 0 && (
+              <div className="recent-reports">
+                <h3>Recent Reports</h3>
+                {projectReports.slice(0, 5).map(report => (
+                  <div key={report.id} className="report-item">
+                    <div className="report-icon">
+                      {report.report_type === 'daily' ? '📅' : '⏰'}
+                    </div>
+                    <div className="report-info">
+                      <div className="report-title">
+                        {report.report_type === 'daily' ? 'Daily' : 'Hourly'} Report
+                      </div>
+                      <div className="report-meta">
+                        By {report.employee_name || 'Manager'} • {formatRelativeTime(report.created_at)}
+                      </div>
+                      <div className="report-summary">
+                        {report.tasks_completed || report.task_description || 'No description'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -634,7 +1030,7 @@ const ProjectDetails = () => {
                       </span>
                       <span className="upload-date">
                         {file.uploaded_at 
-                          ? formatDate(file.uploaded_at)
+                          ? formatRelativeTime(file.uploaded_at)
                           : 'Unknown date'}
                       </span>
                     </div>
@@ -709,9 +1105,13 @@ const ProjectDetails = () => {
                       onChange={(e) => setNewTask({...newTask, assigned_to: e.target.value})}
                     >
                       <option value="">Select collaborator</option>
-                      {collaborators.map(collab => (
-                        <option key={collab.user_id} value={collab.user_id}>
-                          {collab.username} ({collab.employee_id})
+                      {[...collaborators, ...assignedEmployees.map(emp => ({
+                        user_id: emp.employee_id,
+                        username: emp.employee_name,
+                        employee_id: emp.employee_id
+                      }))].map(person => (
+                        <option key={person.user_id || person.employee_id} value={person.user_id || person.employee_id}>
+                          {person.username} ({person.employee_id || 'N/A'})
                         </option>
                       ))}
                     </select>
@@ -811,26 +1211,243 @@ const ProjectDetails = () => {
         {activeTab === 'team' && (
           <div className="team-tab">
             <h3>Project Team</h3>
-            <div className="team-grid">
-              {collaborators.map(collab => (
-                <div key={collab.id} className="team-member">
-                  <div className="member-avatar">
-                    {collab.username?.charAt(0).toUpperCase() || 'U'}
-                  </div>
-                  <div className="member-info">
-                    <h4>{collab.username || 'Unknown User'}</h4>
-                    <p className="member-role">{collab.role || 'Contributor'}</p>
-                    <p className="member-id">ID: {collab.employee_id || collab.user_id || 'N/A'}</p>
-                  </div>
-                  <div className="member-status">
-                    <span className="status-dot"></span>
-                    Active
-                  </div>
+            
+            {/* Assigned Employees Section */}
+            {assignedEmployees.length > 0 && (
+              <div className="team-section">
+                <h4>Assigned Employees (Reporting)</h4>
+                <div className="team-grid">
+                  {assignedEmployees.map(emp => (
+                    <div key={emp.employee_id} className="team-member assigned">
+                      <div className="member-avatar">
+                        {emp.employee_name?.charAt(0).toUpperCase() || 'E'}
+                      </div>
+                      <div className="member-info">
+                        <h4>{emp.employee_name || 'Unknown Employee'}</h4>
+                        <p className="member-role">{emp.employee_role || 'Employee'}</p>
+                        <p className="member-id">ID: {emp.employee_id || 'N/A'}</p>
+                        <p className="member-status">Status: Assigned for reporting</p>
+                      </div>
+                      <div className="member-assignment-info">
+                        <span className="assignment-badge">👥 Assigned</span>
+                        <span className="assignment-date">
+                          Assigned on {formatDate(emp.assigned_date)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              {collaborators.length === 0 && (
-                <div className="no-collaborators">
-                  <p>No collaborators added to this project yet.</p>
+              </div>
+            )}
+
+            {/* Collaborators Section */}
+            {collaborators.length > 0 && (
+              <div className="team-section">
+                <h4>Project Collaborators</h4>
+                <div className="team-grid">
+                  {collaborators.map(collab => (
+                    <div key={collab.id} className="team-member collaborator">
+                      <div className="member-avatar">
+                        {collab.username?.charAt(0).toUpperCase() || 'U'}
+                      </div>
+                      <div className="member-info">
+                        <h4>{collab.username || 'Unknown User'}</h4>
+                        <p className="member-role">{collab.role || 'Contributor'}</p>
+                        <p className="member-id">ID: {collab.employee_id || collab.user_id || 'N/A'}</p>
+                      </div>
+                      <div className="member-status">
+                        <span className="status-dot active"></span>
+                        Active
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(collaborators.length === 0 && assignedEmployees.length === 0) && (
+              <div className="no-team-members">
+                <p>No team members added to this project yet.</p>
+                {isManager && (
+                  <button 
+                    className="assign-team-btn"
+                    onClick={() => setShowAssignModal(true)}
+                  >
+                    👥 Assign Employees
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'reports' && (
+          <div className="reports-tab">
+            <div className="reports-header">
+              <h3>Project Reports</h3>
+              <p>All daily and hourly reports submitted for this project</p>
+              {(isManager || isAssignedEmployee || isCollaborator) && (
+                <div className="report-action-buttons">
+                  <button 
+                    className="action-button"
+                    onClick={() => {
+                      setReportType('daily')
+                      setShowReportModal(true)
+                    }}
+                  >
+                    📅 Submit Daily Report
+                  </button>
+                  <button 
+                    className="action-button"
+                    onClick={() => {
+                      setReportType('hourly')
+                      setShowReportModal(true)
+                    }}
+                  >
+                    ⏰ Submit Hourly Report
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="reports-stats">
+              <div className="report-stat">
+                <div className="stat-value">{projectReports.length}</div>
+                <div className="stat-label">Total Reports</div>
+              </div>
+              <div className="report-stat">
+                <div className="stat-value">
+                  {projectReports.filter(r => r.report_type === 'daily').length}
+                </div>
+                <div className="stat-label">Daily Reports</div>
+              </div>
+              <div className="report-stat">
+                <div className="stat-value">
+                  {projectReports.filter(r => r.report_type === 'hourly').length}
+                </div>
+                <div className="stat-label">Hourly Reports</div>
+              </div>
+              <div className="report-stat">
+                <div className="stat-value">
+                  {projectReports.filter(r => new Date(r.created_at) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length}
+                </div>
+                <div className="stat-label">Last 7 Days</div>
+              </div>
+            </div>
+
+            <div className="reports-list">
+              {projectReports.length > 0 ? (
+                <>
+                  <div className="reports-filters">
+                    <select className="filter-select">
+                      <option value="all">All Reports</option>
+                      <option value="daily">Daily Reports</option>
+                      <option value="hourly">Hourly Reports</option>
+                      <option value="recent">Recent First</option>
+                    </select>
+                    <button className="export-btn">📥 Export Reports</button>
+                  </div>
+
+                  <div className="reports-grid">
+                    {projectReports.map(report => (
+                      <div key={report.id} className="report-card">
+                        <div className="report-header">
+                          <div className="report-type">
+                            {report.report_type === 'daily' ? (
+                              <span className="daily-badge">📅 Daily</span>
+                            ) : (
+                              <span className="hourly-badge">⏰ Hourly</span>
+                            )}
+                          </div>
+                          <div className="report-date">
+                            {formatDate(report.created_at)}
+                          </div>
+                        </div>
+                        
+                        <div className="report-body">
+                          <div className="report-submitter">
+                            <strong>Submitted by:</strong> {report.employee_name || 'Manager'}
+                          </div>
+                          
+                          {report.report_type === 'daily' ? (
+                            <>
+                              <div className="report-detail">
+                                <strong>Hours Worked:</strong> {report.hours_worked} hours
+                              </div>
+                              <div className="report-detail">
+                                <strong>Progress:</strong> {report.progress_percentage}%
+                              </div>
+                              <div className="report-detail">
+                                <strong>Tasks Completed:</strong>
+                                <p>{report.tasks_completed || 'No tasks listed'}</p>
+                              </div>
+                              {report.challenges && (
+                                <div className="report-detail">
+                                  <strong>Challenges:</strong>
+                                  <p>{report.challenges}</p>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              <div className="report-detail">
+                                <strong>Time:</strong> {report.start_time} - {report.end_time}
+                              </div>
+                              <div className="report-detail">
+                                <strong>Task:</strong> {report.task_description}
+                              </div>
+                              <div className="report-detail">
+                                <strong>Work Details:</strong>
+                                <p>{report.work_details}</p>
+                              </div>
+                              {report.issues && (
+                                <div className="report-detail">
+                                  <strong>Issues:</strong>
+                                  <p>{report.issues}</p>
+                                </div>
+                              )}
+                            </>
+                          )}
+                          
+                          <div className="report-materials">
+                            {report.materials_used && (
+                              <div><strong>Materials:</strong> {report.materials_used}</div>
+                            )}
+                            {report.equipment_used && (
+                              <div><strong>Equipment:</strong> {report.equipment_used}</div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="report-footer">
+                          <span className="report-time">
+                            Submitted at {new Date(report.created_at).toLocaleTimeString('en-IN', { 
+                              hour: '2-digit', 
+                              minute: '2-digit' 
+                            })}
+                          </span>
+                          <button className="view-details-btn">View Full Report</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div className="no-reports">
+                  <div className="no-reports-icon">📄</div>
+                  <h4>No Reports Yet</h4>
+                  <p>No reports have been submitted for this project.</p>
+                  {(isManager || isAssignedEmployee || isCollaborator) && (
+                    <button 
+                      className="submit-first-report"
+                      onClick={() => {
+                        setReportType('daily')
+                        setShowReportModal(true)
+                      }}
+                    >
+                      Submit First Report
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -877,7 +1494,22 @@ const ProjectDetails = () => {
                 </div>
               </div>
 
-              {/* Option 3: Task Progress */}
+              {/* Option 3: Submit Report */}
+              <div className="contribute-option">
+                <div className="option-icon">📊</div>
+                <div className="option-content">
+                  <h4>Submit Report</h4>
+                  <p>Submit daily or hourly progress reports for this project</p>
+                  <button 
+                    className="option-button"
+                    onClick={() => setActiveTab('reports')}
+                  >
+                    View & Submit Reports
+                  </button>
+                </div>
+              </div>
+
+              {/* Option 4: Update Tasks */}
               <div className="contribute-option">
                 <div className="option-icon">✅</div>
                 <div className="option-content">
@@ -888,21 +1520,6 @@ const ProjectDetails = () => {
                     onClick={() => setActiveTab('tasks')}
                   >
                     Update Tasks
-                  </button>
-                </div>
-              </div>
-
-              {/* Option 4: Add Note/Comment */}
-              <div className="contribute-option">
-                <div className="option-icon">💬</div>
-                <div className="option-content">
-                  <h4>Add Comment</h4>
-                  <p>Share thoughts, questions, or feedback about the project</p>
-                  <button 
-                    className="option-button"
-                    onClick={() => setShowCommentForm(true)}
-                  >
-                    Add Comment
                   </button>
                 </div>
               </div>
@@ -1045,46 +1662,6 @@ const ProjectDetails = () => {
               </div>
             )}
 
-            {/* Comment Form */}
-            {showCommentForm && (
-              <div className="contribute-form">
-                <div className="form-header">
-                  <h3>Add Comment</h3>
-                  <button 
-                    className="close-button"
-                    onClick={() => setShowCommentForm(false)}
-                  >
-                    ×
-                  </button>
-                </div>
-                <form className="comment-form">
-                  <div className="form-group">
-                    <label>Your Comment *</label>
-                    <textarea
-                      placeholder="Share your thoughts, questions, or feedback..."
-                      rows="4"
-                      required
-                    />
-                  </div>
-                  <div className="form-actions">
-                    <button 
-                      type="button" 
-                      className="cancel-button"
-                      onClick={() => setShowCommentForm(false)}
-                    >
-                      Cancel
-                    </button>
-                    <button 
-                      type="submit" 
-                      className="submit-button"
-                    >
-                      Post Comment
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
             {/* Recent Contributions */}
             <div className="recent-contributions">
               <h3>Recent Contributions</h3>
@@ -1093,9 +1670,7 @@ const ProjectDetails = () => {
                   {recentContributions.map(contribution => (
                     <div key={contribution.id} className="contribution-item">
                       <div className="contribution-icon">
-                        {contribution.type === 'file' ? '📎' : 
-                         contribution.type === 'update' ? '📝' : 
-                         contribution.type === 'task' ? '✅' : '💬'}
+                        {contribution.icon || '💬'}
                       </div>
                       <div className="contribution-content">
                         <div className="contribution-header">
@@ -1115,6 +1690,512 @@ const ProjectDetails = () => {
           </div>
         )}
       </div>
+
+      {/* Assign Modal */}
+      {showAssignModal && (
+        <div className="modal-overlay">
+          <div className="modal-content assign-modal">
+            <div className="modal-header">
+              <h2>Assign Project: {project.name}</h2>
+              <button 
+                className="btn-close"
+                onClick={() => {
+                  setShowAssignModal(false)
+                  setSelectedEmployees([])
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="assign-form">
+              <div className="project-info-card">
+                <h4>Project Details</h4>
+                <p><strong>Customer:</strong> {project.customer}</p>
+                <p><strong>Description:</strong> {project.description}</p>
+                <p><strong>Duration:</strong> {formatDate(project.start_date)} - {formatDate(project.end_date) || 'Ongoing'}</p>
+              </div>
+
+              <div className="form-group">
+                <label>Select Employees to Assign *</label>
+                <div className="employees-checkbox-list">
+                  {employees.length === 0 ? (
+                    <div className="no-employees">No employees found</div>
+                  ) : (
+                    employees.map(employee => (
+                      <label key={employee.id} className="checkbox-label employee-checkbox">
+                        <input
+                          type="checkbox"
+                          value={employee.id}
+                          checked={selectedEmployees.includes(employee.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedEmployees([...selectedEmployees, employee.id])
+                            } else {
+                              setSelectedEmployees(selectedEmployees.filter(id => id !== employee.id))
+                            }
+                          }}
+                        />
+                        <div className="employee-info">
+                          <span className="employee-name">{employee.name}</span>
+                          <span className="employee-details">
+                            {employee.role} • ID: {employee.employee_id || employee.id}
+                          </span>
+                        </div>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <div className="selected-count">
+                  {selectedEmployees.length} employee(s) selected
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Reporting Requirements</label>
+                <div className="reporting-requirements">
+                  <label className="checkbox-label">
+                    <input type="checkbox" defaultChecked />
+                    <span>✅ Daily Report Required</span>
+                  </label>
+                  <label className="checkbox-label">
+                    <input type="checkbox" defaultChecked />
+                    <span>✅ Hourly Report Required</span>
+                  </label>
+                  <label className="checkbox-label">
+                    <input type="checkbox" defaultChecked />
+                    <span>⏰ Time Tracking Enabled</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="assignment-notes">
+                <label>Assignment Notes (Optional)</label>
+                <textarea 
+                  placeholder="Add any special instructions or notes for the assigned employees..."
+                  rows="2"
+                />
+              </div>
+
+              <div className="modal-actions">
+                <button 
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowAssignModal(false)
+                    setSelectedEmployees([])
+                  }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleAssignProject}
+                  disabled={assignmentLoading || selectedEmployees.length === 0}
+                >
+                  {assignmentLoading ? (
+                    <>
+                      <span className="spinner"></span> Assigning...
+                    </>
+                  ) : (
+                    'Assign Project'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="modal-overlay">
+          <div className="modal-content report-modal">
+            <div className="modal-header">
+              <h2>
+                <span className="report-icon">{reportType === 'daily' ? '📅' : '⏰'}</span>
+                {reportType === 'daily' ? 'Daily' : 'Hourly'} Report - {project.name}
+              </h2>
+              <button 
+                className="btn-close"
+                onClick={() => {
+                  setShowReportModal(false)
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="report-project-info">
+              <p><strong>Project:</strong> {project.name}</p>
+              <p><strong>Customer:</strong> {project.customer}</p>
+              <p><strong>Date:</strong> {new Date().toLocaleDateString('en-IN')}</p>
+              <p><strong>Submitted by:</strong> {user?.name || user?.username || 'User'}</p>
+            </div>
+
+            {reportType === 'daily' ? (
+              <form onSubmit={(e) => {
+                e.preventDefault()
+                handleSubmitDailyReport()
+              }}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Date *</label>
+                    <input
+                      type="date"
+                      value={dailyReport.date}
+                      onChange={(e) => setDailyReport({...dailyReport, date: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Hours Worked *</label>
+                    <input
+                      type="number"
+                      value={dailyReport.hoursWorked}
+                      onChange={(e) => setDailyReport({...dailyReport, hoursWorked: e.target.value})}
+                      min="0"
+                      max="24"
+                      step="0.5"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Tasks Completed Today *</label>
+                  <textarea
+                    value={dailyReport.tasksCompleted}
+                    onChange={(e) => setDailyReport({...dailyReport, tasksCompleted: e.target.value})}
+                    placeholder="List the tasks completed today..."
+                    rows="3"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Challenges / Issues Faced</label>
+                  <textarea
+                    value={dailyReport.challenges}
+                    onChange={(e) => setDailyReport({...dailyReport, challenges: e.target.value})}
+                    placeholder="Describe any challenges or issues faced during the day..."
+                    rows="2"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Next Day Plan</label>
+                  <textarea
+                    value={dailyReport.nextDayPlan}
+                    onChange={(e) => setDailyReport({...dailyReport, nextDayPlan: e.target.value})}
+                    placeholder="Plan for tomorrow's work..."
+                    rows="2"
+                  />
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Materials Used</label>
+                    <input
+                      type="text"
+                      value={dailyReport.materialsUsed}
+                      onChange={(e) => setDailyReport({...dailyReport, materialsUsed: e.target.value})}
+                      placeholder="e.g., Cement, Steel, Wiring, etc."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Equipment Used</label>
+                    <input
+                      type="text"
+                      value={dailyReport.equipmentUsed}
+                      onChange={(e) => setDailyReport({...dailyReport, equipmentUsed: e.target.value})}
+                      placeholder="e.g., Crane, Mixer, Drills, etc."
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Progress Percentage: {dailyReport.progressPercentage}%</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={dailyReport.progressPercentage}
+                    onChange={(e) => setDailyReport({...dailyReport, progressPercentage: e.target.value})}
+                    className="progress-slider"
+                  />
+                  <div className="progress-labels">
+                    <span>0%</span>
+                    <span>50%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+
+                <div className="modal-actions">
+                  <button 
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setShowReportModal(false)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Submit Daily Report
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={(e) => {
+                e.preventDefault()
+                handleSubmitHourlyReport()
+              }}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Date *</label>
+                    <input
+                      type="date"
+                      value={hourlyReport.date}
+                      onChange={(e) => setHourlyReport({...hourlyReport, date: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-row time-row">
+                  <div className="form-group">
+                    <label>Start Time *</label>
+                    <input
+                      type="time"
+                      value={hourlyReport.startTime}
+                      onChange={(e) => setHourlyReport({...hourlyReport, startTime: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="time-separator">to</div>
+                  <div className="form-group">
+                    <label>End Time *</label>
+                    <input
+                      type="time"
+                      value={hourlyReport.endTime}
+                      onChange={(e) => setHourlyReport({...hourlyReport, endTime: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Task Description *</label>
+                  <input
+                    type="text"
+                    value={hourlyReport.taskDescription}
+                    onChange={(e) => setHourlyReport({...hourlyReport, taskDescription: e.target.value})}
+                    placeholder="What task are you working on?"
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Work Details *</label>
+                  <textarea
+                    value={hourlyReport.workDetails}
+                    onChange={(e) => setHourlyReport({...hourlyReport, workDetails: e.target.value})}
+                    placeholder="Describe the work done in this hour..."
+                    rows="3"
+                    required
+                  />
+                </div>
+
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Materials Used</label>
+                    <input
+                      type="text"
+                      value={hourlyReport.materialsUsed}
+                      onChange={(e) => setHourlyReport({...hourlyReport, materialsUsed: e.target.value})}
+                      placeholder="Materials used in this hour..."
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Equipment Used</label>
+                    <input
+                      type="text"
+                      value={hourlyReport.equipmentUsed}
+                      onChange={(e) => setHourlyReport({...hourlyReport, equipmentUsed: e.target.value})}
+                      placeholder="Equipment used in this hour..."
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Issues / Notes</label>
+                  <textarea
+                    value={hourlyReport.issues}
+                    onChange={(e) => setHourlyReport({...hourlyReport, issues: e.target.value})}
+                    placeholder="Any issues faced or additional notes..."
+                    rows="2"
+                  />
+                </div>
+
+                <div className="modal-actions">
+                  <button 
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setShowReportModal(false)
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Submit Hourly Report
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* View Reports Modal */}
+      {showViewReports && (
+        <div className="modal-overlay">
+          <div className="modal-content view-reports-modal">
+            <div className="modal-header">
+              <h2>📊 All Reports - {project.name}</h2>
+              <button 
+                className="btn-close"
+                onClick={() => {
+                  setShowViewReports(false)
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="reports-header">
+              <div className="reports-stats">
+                <div className="stat-item">
+                  <span className="stat-label">Total Reports:</span>
+                  <span className="stat-value">{projectReports.length}</span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Daily Reports:</span>
+                  <span className="stat-value">
+                    {projectReports.filter(r => r.report_type === 'daily').length}
+                  </span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">Hourly Reports:</span>
+                  <span className="stat-value">
+                    {projectReports.filter(r => r.report_type === 'hourly').length}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="report-filters">
+                <select className="filter-select">
+                  <option value="all">All Reports</option>
+                  <option value="daily">Daily Reports</option>
+                  <option value="hourly">Hourly Reports</option>
+                  <option value="recent">Recent First</option>
+                </select>
+                <button className="btn-export">📥 Export</button>
+              </div>
+            </div>
+
+            <div className="reports-list">
+              {projectReports.length === 0 ? (
+                <div className="no-reports">
+                  <div className="no-reports-icon">📄</div>
+                  <h3>No Reports Available</h3>
+                  <p>No reports have been submitted for this project yet.</p>
+                  <button 
+                    className="btn-primary"
+                    onClick={() => {
+                      setShowViewReports(false)
+                      setReportType('daily')
+                      setShowReportModal(true)
+                    }}
+                  >
+                    Submit First Report
+                  </button>
+                </div>
+              ) : (
+                projectReports.map(report => (
+                  <div key={report.id} className="report-card">
+                    <div className="report-header">
+                      <div className="report-type-badge">
+                        {report.report_type === 'daily' ? '📅 Daily' : '⏰ Hourly'}
+                      </div>
+                      <div className="report-date">
+                        {new Date(report.created_at).toLocaleDateString('en-IN')}
+                      </div>
+                      <div className="report-submitter">
+                        By: {report.employee_name || 'Manager'}
+                      </div>
+                    </div>
+                    
+                    <div className="report-content">
+                      <div className="report-summary">
+                        <p><strong>Summary:</strong> {report.tasks_completed || report.task_description}</p>
+                      </div>
+                      
+                      <div className="report-details">
+                        {report.report_type === 'daily' && (
+                          <>
+                            <div className="detail-item">
+                              <span className="detail-label">Hours Worked:</span>
+                              <span className="detail-value">{report.hours_worked} hrs</span>
+                            </div>
+                            <div className="detail-item">
+                              <span className="detail-label">Progress:</span>
+                              <span className="detail-value">{report.progress_percentage}%</span>
+                            </div>
+                            {report.challenges && (
+                              <div className="detail-item">
+                                <span className="detail-label">Challenges:</span>
+                                <span className="detail-value">{report.challenges}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                        
+                        {report.report_type === 'hourly' && (
+                          <>
+                            <div className="detail-item">
+                              <span className="detail-label">Time:</span>
+                              <span className="detail-value">{report.start_time} - {report.end_time}</span>
+                            </div>
+                            {report.issues && (
+                              <div className="detail-item">
+                                <span className="detail-label">Issues:</span>
+                                <span className="detail-value">{report.issues}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="report-footer">
+                      <span className="report-time">
+                        Submitted at {new Date(report.created_at).toLocaleTimeString('en-IN', { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </span>
+                      <button className="btn-view-details">View Details</button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Debug info - remove in production */}
       {process.env.NODE_ENV === 'development' && (
@@ -1125,8 +2206,11 @@ const ProjectDetails = () => {
           <p>User Role: {user?.role}</p>
           <p>Is Manager: {isManager ? 'Yes' : 'No'}</p>
           <p>Is Collaborator: {isCollaborator ? 'Yes' : 'No'}</p>
+          <p>Is Assigned Employee: {isAssignedEmployee ? 'Yes' : 'No'}</p>
+          <p>Assigned Employees: {assignedEmployees.length}</p>
           <p>Tasks: {tasks.length}</p>
           <p>Completion: {taskStats.completionPercentage}%</p>
+          <p>Reports: {projectReports.length}</p>
           {error && <p>Error: {error}</p>}
         </div>
       )}

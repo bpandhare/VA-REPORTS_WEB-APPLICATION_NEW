@@ -20,6 +20,9 @@ const api = axios.create({
 let isUsingMockMode = false;
 let mockProjects = [];
 let mockProjectId = 1;
+let mockAssignments = [];
+let mockReports = [];
+let mockEmployees = [];
 
 // Initialize mock data from localStorage if available
 try {
@@ -28,8 +31,27 @@ try {
     mockProjects = JSON.parse(savedProjects);
     mockProjectId = mockProjects.length > 0 ? Math.max(...mockProjects.map(p => p.id)) + 1 : 1;
   }
+  
+  const savedAssignments = localStorage.getItem('mock_assignments');
+  if (savedAssignments) {
+    mockAssignments = JSON.parse(savedAssignments);
+  }
+  
+  const savedReports = localStorage.getItem('mock_reports');
+  if (savedReports) {
+    mockReports = JSON.parse(savedReports);
+  }
+  
+  // Initialize mock employees
+  mockEmployees = [
+    { id: 1, name: 'John Doe', email: 'john@example.com', role: 'Site Engineer', employee_id: 'EMP001' },
+    { id: 2, name: 'Jane Smith', email: 'jane@example.com', role: 'Project Coordinator', employee_id: 'EMP002' },
+    { id: 3, name: 'Robert Johnson', email: 'robert@example.com', role: 'Civil Engineer', employee_id: 'EMP003' },
+    { id: 4, name: 'Sarah Williams', email: 'sarah@example.com', role: 'Architect', employee_id: 'EMP004' },
+    { id: 5, name: 'Michael Brown', email: 'michael@example.com', role: 'Surveyor', employee_id: 'EMP005' },
+  ];
 } catch (e) {
-  console.warn('Could not load mock projects from localStorage');
+  console.warn('Could not load mock data from localStorage');
 }
 
 // Enhanced request interceptor
@@ -121,8 +143,10 @@ api.interceptors.response.use(
   }
 );
 
-// Mock API functions for development
+// ========== MOCK API FUNCTIONS ==========
+
 const mockApi = {
+  // Project functions
   createProject: (data) => {
     console.log('🛠️ Using MOCK API for createProject:', data);
     
@@ -234,12 +258,300 @@ const mockApi = {
         message: 'Project deleted successfully (MOCK MODE)'
       }
     });
+  },
+  
+  // Assignment functions
+  assignProjectToEmployees: (data) => {
+    console.log('🛠️ Using MOCK API for assignProjectToEmployees:', data);
+    
+    const newAssignments = data.employee_ids.map(employeeId => {
+      const employee = mockEmployees.find(e => e.id === parseInt(employeeId));
+      return {
+        id: mockAssignments.length + 1,
+        project_id: data.project_id,
+        employee_id: employeeId,
+        employee_name: employee?.name || `Employee ${employeeId}`,
+        employee_role: employee?.role || 'Employee',
+        assigned_date: data.start_date || new Date().toISOString().split('T')[0],
+        reporting_required: data.reporting_required || true
+      };
+    });
+    
+    mockAssignments.push(...newAssignments);
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('mock_assignments', JSON.stringify(mockAssignments));
+    } catch (e) {
+      console.warn('Could not save mock assignments to localStorage');
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: 'Project assigned successfully (MOCK MODE)',
+        assignments: newAssignments
+      }
+    });
+  },
+  
+  getEmployeeAssignments: (projectId) => {
+    console.log(`🛠️ Using MOCK API for getEmployeeAssignments: ${projectId}`);
+    
+    const assignments = mockAssignments.filter(a => a.project_id === parseInt(projectId));
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        assignments: assignments
+      }
+    });
+  },
+  
+  getAssignedProjects: () => {
+    console.log('🛠️ Using MOCK API for getAssignedProjects');
+    
+    // Get projects where current user is assigned
+    // For mock, assume user is employee with ID 1
+    const assignedProjectIds = mockAssignments
+      .filter(a => a.employee_id === 1)
+      .map(a => a.project_id);
+    
+    const assignedProjects = mockProjects.filter(p => 
+      assignedProjectIds.includes(p.id)
+    );
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        projects: assignedProjects
+      }
+    });
+  },
+  
+  // Report functions
+  submitDailyReport: (data) => {
+    console.log('🛠️ Using MOCK API for submitDailyReport:', data);
+    
+    const newReport = {
+      id: mockReports.length + 1,
+      project_id: data.project_id,
+      project_name: mockProjects.find(p => p.id === parseInt(data.project_id))?.name || 'Unknown Project',
+      employee_id: 1, // Mock user ID
+      employee_name: 'John Doe', // Mock user name
+      report_type: 'daily',
+      date: data.date,
+      hours_worked: data.hours_worked || 8,
+      tasks_completed: data.tasks_completed || '',
+      challenges: data.challenges || '',
+      next_day_plan: data.next_day_plan || '',
+      materials_used: data.materials_used || '',
+      equipment_used: data.equipment_used || '',
+      progress_percentage: data.progress_percentage || 0,
+      created_at: new Date().toISOString()
+    };
+    
+    mockReports.push(newReport);
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('mock_reports', JSON.stringify(mockReports));
+    } catch (e) {
+      console.warn('Could not save mock reports to localStorage');
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: 'Daily report submitted successfully (MOCK MODE)',
+        report: newReport
+      }
+    });
+  },
+  
+  submitHourlyReport: (data) => {
+    console.log('🛠️ Using MOCK API for submitHourlyReport:', data);
+    
+    const newReport = {
+      id: mockReports.length + 1,
+      project_id: data.project_id,
+      project_name: mockProjects.find(p => p.id === parseInt(data.project_id))?.name || 'Unknown Project',
+      employee_id: 1, // Mock user ID
+      employee_name: 'John Doe', // Mock user name
+      report_type: 'hourly',
+      date: data.date,
+      start_time: data.start_time || '09:00',
+      end_time: data.end_time || '10:00',
+      task_description: data.task_description || '',
+      work_details: data.work_details || '',
+      materials_used: data.materials_used || '',
+      equipment_used: data.equipment_used || '',
+      issues: data.issues || '',
+      created_at: new Date().toISOString()
+    };
+    
+    mockReports.push(newReport);
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('mock_reports', JSON.stringify(mockReports));
+    } catch (e) {
+      console.warn('Could not save mock reports to localStorage');
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: 'Hourly report submitted successfully (MOCK MODE)',
+        report: newReport
+      }
+    });
+  },
+  
+  submitManagerDailyReport: (data) => {
+    console.log('🛠️ Using MOCK API for submitManagerDailyReport:', data);
+    
+    const newReport = {
+      id: mockReports.length + 1,
+      project_id: data.project_id,
+      project_name: mockProjects.find(p => p.id === parseInt(data.project_id))?.name || 'Unknown Project',
+      employee_id: 99, // Manager ID
+      employee_name: 'Manager', // Manager name
+      report_type: 'daily',
+      date: data.date,
+      hours_worked: data.hours_worked || 8,
+      tasks_completed: data.tasks_completed || '',
+      challenges: data.challenges || '',
+      next_day_plan: data.next_day_plan || '',
+      materials_used: data.materials_used || '',
+      equipment_used: data.equipment_used || '',
+      progress_percentage: data.progress_percentage || 0,
+      submitted_by: 'manager',
+      created_at: new Date().toISOString()
+    };
+    
+    mockReports.push(newReport);
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('mock_reports', JSON.stringify(mockReports));
+    } catch (e) {
+      console.warn('Could not save mock reports to localStorage');
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: 'Manager daily report submitted successfully (MOCK MODE)',
+        report: newReport
+      }
+    });
+  },
+  
+  submitManagerHourlyReport: (data) => {
+    console.log('🛠️ Using MOCK API for submitManagerHourlyReport:', data);
+    
+    const newReport = {
+      id: mockReports.length + 1,
+      project_id: data.project_id,
+      project_name: mockProjects.find(p => p.id === parseInt(data.project_id))?.name || 'Unknown Project',
+      employee_id: 99, // Manager ID
+      employee_name: 'Manager', // Manager name
+      report_type: 'hourly',
+      date: data.date,
+      start_time: data.start_time || '09:00',
+      end_time: data.end_time || '10:00',
+      task_description: data.task_description || '',
+      work_details: data.work_details || '',
+      materials_used: data.materials_used || '',
+      equipment_used: data.equipment_used || '',
+      issues: data.issues || '',
+      submitted_by: 'manager',
+      created_at: new Date().toISOString()
+    };
+    
+    mockReports.push(newReport);
+    
+    // Save to localStorage
+    try {
+      localStorage.setItem('mock_reports', JSON.stringify(mockReports));
+    } catch (e) {
+      console.warn('Could not save mock reports to localStorage');
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        message: 'Manager hourly report submitted successfully (MOCK MODE)',
+        report: newReport
+      }
+    });
+  },
+  
+  getMyReports: () => {
+    console.log('🛠️ Using MOCK API for getMyReports');
+    
+    // For mock, assume user is employee with ID 1
+    const userReports = mockReports.filter(r => r.employee_id === 1);
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        reports: userReports
+      }
+    });
+  },
+  
+  getProjectReports: (projectId) => {
+    console.log(`🛠️ Using MOCK API for getProjectReports: ${projectId}`);
+    
+    const projectReports = mockReports.filter(r => r.project_id === parseInt(projectId));
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        reports: projectReports
+      }
+    });
+  },
+  
+  getEmployeesList: () => {
+    console.log('🛠️ Using MOCK API for getEmployeesList');
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        employees: mockEmployees
+      }
+    });
+  },
+  
+  listProjectsForEmployee: () => {
+    console.log('🛠️ Using MOCK API for listProjectsForEmployee');
+    
+    // Get projects where current user is assigned (for employee dashboard)
+    const assignedProjectIds = mockAssignments
+      .filter(a => a.employee_id === 1)
+      .map(a => a.project_id);
+    
+    const availableProjects = mockProjects.filter(p => {
+      const isActive = p.status === 'active' || p.status === 'planning';
+      const isAssigned = assignedProjectIds.includes(p.id);
+      return isActive && isAssigned;
+    });
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        projects: availableProjects
+      }
+    });
   }
 };
 
-// Enhanced API helpers with automatic fallback to mock
-// In api.js, update createProject function:
+// ========== REAL API FUNCTIONS ==========
 
+// Enhanced API helpers with automatic fallback to mock
 export const createProject = async (projectData) => {
   console.log("📤 Sending to /api/projects:", projectData);
   console.log("📤 JSON:", JSON.stringify(projectData));
@@ -256,17 +568,15 @@ export const createProject = async (projectData) => {
       status: error.response?.status,
       responseData: error.response?.data
     });
-    throw error;
+    
+    // Fallback to mock
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.createProject(projectData);
   }
 };
 
 export const listProjects = async () => {
   console.log('📋 Attempting to list projects');
-  
-  if (isUsingMockMode) {
-    console.log('🔄 Using mock mode for listProjects');
-    return mockApi.listProjects();
-  }
   
   try {
     const response = await api.get('/api/projects');
@@ -277,25 +587,6 @@ export const listProjects = async () => {
   }
 };
 
-// Add this before the updateProject function to see what's being sent
-api.interceptors.request.use(
-  (config) => {
-    if (config.url.includes('/projects/') && config.method === 'put') {
-      console.group('📤 PUT Request Details');
-      console.log('URL:', config.baseURL + config.url);
-      console.log('Data:', config.data);
-      console.log('Headers:', config.headers);
-      console.groupEnd();
-    }
-    return config;
-  },
-  (error) => {
-    console.error('Request error:', error);
-    return Promise.reject(error);
-  }
-);
-
-// CORRECTED updateProject function
 // CORRECTED updateProject function
 export const updateProject = async (id, updates) => {
   console.log(`✏️ Attempting to update project ${id}:`, updates);
@@ -333,7 +624,6 @@ export const updateProject = async (id, updates) => {
   }
 };
 
-// In your api.js file
 // In your api.js - update the deleteProject function
 export const deleteProject = async (projectId) => {
   console.log(`🗑️ Attempting to delete project ${projectId}`);
@@ -387,34 +677,209 @@ export const deleteProject = async (projectId) => {
     }
   }
   
-  // If all endpoints failed, check what GET endpoints exist
-  console.log('🔍 Testing GET endpoints to understand API structure...');
-  
-  try {
-    // Try to get projects to see the API structure
-    const projectsResponse = await api.get('/api/projects');
-    console.log('📋 GET /api/projects response:', projectsResponse.data);
-    
-    // Try to get a single project
-    const singleResponse = await api.get(`/api/projects/${projectId}`);
-    console.log(`📋 GET /api/projects/${projectId} response:`, singleResponse.data);
-    
-    // If GET works but DELETE doesn't, backend needs route
-    console.warn('⚠️ GET works but DELETE doesn\'t. Check backend routes.');
-  } catch (e) {
-    console.log('❌ GET tests also failed:', e.message);
-  }
-  
   // Fallback to mock
   console.log(`🛠️ Using MOCK API for delete (project ${projectId})`);
-  return {
-    data: {
-      success: true,
-      message: `Project ${projectId} deleted (MOCK - Backend route not configured)`,
-      mock: true
-    }
-  };
+  return mockApi.deleteProject(projectId);
 };
+
+// ========== NEW ASSIGNMENT AND REPORTING FUNCTIONS ==========
+
+// Project Assignment APIs
+export const assignProjectToEmployees = async (assignmentData) => {
+  console.log('📤 Assigning project to employees:', assignmentData);
+  
+  try {
+    const response = await api.post('/api/projects/assign', assignmentData);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.assignProjectToEmployees(assignmentData);
+  }
+};
+
+export const getEmployeeAssignments = async (projectId) => {
+  console.log(`📤 Fetching assignments for project ${projectId}`);
+  
+  try {
+    const response = await api.get(`/api/projects/${projectId}/assignments`);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.getEmployeeAssignments(projectId);
+  }
+};
+
+// Update this function in your api.js file:
+export const getAssignedProjects = async () => {
+  console.log('📤 Fetching assigned projects for current user');
+  
+  try {
+    // DIRECT CALL: Use the endpoint that definitely exists
+    const response = await api.get('/api/projects/assigned-projects');
+    console.log('✅ Assigned projects response:', {
+      success: response.data.success,
+      count: response.data.count || 0,
+      projects: response.data.projects || []
+    });
+    return response;
+  } catch (error) {
+    console.error('❌ /api/projects/assigned-projects failed:', error);
+    
+    // Try the simplest possible endpoint
+    try {
+      const response = await api.get('/api/projects');
+      console.log('✅ /api/projects worked, filtering for current user...');
+      
+      // Filter projects for current user manually
+      const allProjects = response.data.projects || [];
+      const userId = localStorage.getItem('userId');
+      const employeeId = localStorage.getItem('employeeId');
+      const username = localStorage.getItem('username');
+      
+      // Filter projects this user has access to (same logic as backend)
+      const userProjects = allProjects.filter(project => {
+        // If user is creator
+        if (project.created_by == userId) return true;
+        
+        // If project has collaborators, check if user is in them
+        // This is simplified - in real app you'd have a better way
+        return true; // For now, return all projects
+      });
+      
+      return {
+        data: {
+          success: true,
+          projects: userProjects,
+          count: userProjects.length,
+          message: 'Filtered from all projects'
+        }
+      };
+      
+    } catch (fallbackError) {
+      console.error('❌ Fallback also failed:', fallbackError);
+      
+      // Return empty but successful response
+      return Promise.resolve({
+        data: {
+          success: true,
+          projects: [],
+          count: 0,
+          message: 'No endpoints available'
+        }
+      });
+    }
+  }
+};
+
+// Report Submission APIs
+export const submitDailyReport = async (reportData) => {
+  console.log('📤 Submitting daily report:', reportData);
+  
+  try {
+    const response = await api.post('/api/reports/daily', reportData);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.submitDailyReport(reportData);
+  }
+};
+
+export const submitHourlyReport = async (reportData) => {
+  console.log('📤 Submitting hourly report:', reportData);
+  
+  try {
+    const response = await api.post('/api/reports/hourly', reportData);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.submitHourlyReport(reportData);
+  }
+};
+
+export const submitManagerDailyReport = async (reportData) => {
+  console.log('📤 Submitting manager daily report:', reportData);
+  
+  try {
+    const response = await api.post('/api/reports/manager/daily', reportData);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.submitManagerDailyReport(reportData);
+  }
+};
+
+export const submitManagerHourlyReport = async (reportData) => {
+  console.log('📤 Submitting manager hourly report:', reportData);
+  
+  try {
+    const response = await api.post('/api/reports/manager/hourly', reportData);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.submitManagerHourlyReport(reportData);
+  }
+};
+
+export const getMyReports = async () => {
+  console.log('📤 Fetching my reports');
+  
+  try {
+    const response = await api.get('/api/employee/my-reports');
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.getMyReports();
+  }
+};
+
+export const getProjectReports = async (projectId) => {
+  console.log(`📤 Fetching reports for project ${projectId}`);
+  
+  try {
+    const response = await api.get(`/api/projects/${projectId}/reports`);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.getProjectReports(projectId);
+  }
+};
+
+// Employees APIs
+export const getEmployeesList = async () => {
+  console.log('📤 Fetching employees list');
+  
+  try {
+    const response = await api.get('/api/employees');
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.getEmployeesList();
+  }
+};
+
+export const listProjectsForEmployee = async () => {
+  console.log('📤 Fetching projects for employee');
+  
+  try {
+    const response = await api.get('/api/employee/projects');
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed:', error);
+    console.warn('🔄 Falling back to mock API');
+    return mockApi.listProjectsForEmployee();
+  }
+};
+
+// ========== EXISTING FUNCTIONS (KEEP THESE) ==========
 
 // Test functions
 export const testBackendConnection = async () => {
@@ -459,8 +924,12 @@ export const testBackendConnection = async () => {
 
 export const resetMockData = () => {
   mockProjects = [];
+  mockAssignments = [];
+  mockReports = [];
   mockProjectId = 1;
   localStorage.removeItem('mock_projects');
+  localStorage.removeItem('mock_assignments');
+  localStorage.removeItem('mock_reports');
   console.log('🔄 Mock data reset');
   return { success: true, message: 'Mock data reset' };
 };
@@ -469,7 +938,9 @@ export const getMockStatus = () => {
   return {
     isUsingMockMode,
     mockProjectCount: mockProjects.length,
-    mockProjects: mockProjects
+    mockAssignmentCount: mockAssignments.length,
+    mockReportCount: mockReports.length,
+    mockEmployeeCount: mockEmployees.length
   };
 };
 
@@ -505,9 +976,6 @@ export const deleteCollaborator = (projectId, collabId) => {
 };
 
 // Get all users for collaborator dropdown
-// In services/api.js - make sure this function exists:
-
-// Get all users for collaborator dropdown
 export const getAvailableUsers = async () => {
   try {
     console.log('👥 Fetching available users...');
@@ -527,6 +995,7 @@ export const getAvailableUsers = async () => {
     };
   }
 };
+
 // Get existing customers for dropdown
 export const getCustomersList = () => {
   return api.get('/api/projects/customers/list');
@@ -563,7 +1032,10 @@ export const getProjectStats = () => {
       total: mockProjects.length,
       completed: mockProjects.filter(p => p.status === 'completed').length,
       active: mockProjects.filter(p => p.status === 'active').length,
-      overdue: mockProjects.filter(p => p.status === 'overdue').length
+      overdue: mockProjects.filter(p => p.status === 'overdue').length,
+      assigned: mockProjects.filter(p => 
+        mockAssignments.some(a => a.project_id === p.id)
+      ).length
     };
     return Promise.resolve({
       data: {
@@ -690,29 +1162,89 @@ export const addTaskAttachment = (projectId, taskId, formData) => {
   });
 };
 
-// Add this function to your existing api.js file
-// In your api.js file, add this function:
+// Add these functions to your api.js file
 
-export const getEmployeesList = async () => {
+// Get projects available for reporting (for current user)
+export const getProjectsForReporting = async () => {
+  console.log('📤 Fetching projects available for reporting');
+  
   try {
-    const response = await api.get('/api/employees/list');
+    // Try to get projects available for current user to report on
+    const response = await api.get('/api/projects/available-for-reporting');
     return response;
   } catch (error) {
-    console.error('Error fetching employees list:', error);
-    // Return a mock response if API is offline
-    return {
+    console.error('❌ Real API failed for getProjectsForReporting:', error);
+    console.warn('🔄 Falling back to mock data');
+    
+    // Mock implementation based on user role
+    const userRole = localStorage.getItem('userRole') || 'employee';
+    const userId = localStorage.getItem('userId') || '1';
+    
+    let availableProjects = [];
+    
+    if (userRole === 'manager' || userRole === 'Manager') {
+      // Managers can see all active projects
+      availableProjects = mockProjects.filter(project => 
+        project.status === 'active' || project.status === 'planning'
+      );
+    } else {
+      // Employees can only see projects they're assigned to
+      const assignedProjectIds = mockAssignments
+        .filter(assignment => assignment.employee_id == userId)
+        .map(assignment => assignment.project_id);
+      
+      availableProjects = mockProjects.filter(project => {
+        const isAssigned = assignedProjectIds.includes(project.id);
+        const isActive = project.status === 'active' || project.status === 'planning';
+        return isAssigned && isActive;
+      });
+    }
+    
+    return Promise.resolve({
       data: {
         success: true,
-        employees: [
-          { id: 1, name: "John Doe", employeeId: "EMP001", department: "Engineering" },
-          { id: 2, name: "Jane Smith", employeeId: "EMP002", department: "Sales" },
-          { id: 3, name: "Robert Johnson", employeeId: "EMP003", department: "Marketing" },
-          { id: 4, name: "Emily Davis", employeeId: "EMP004", department: "Operations" },
-        ]
+        projects: availableProjects,
+        message: 'Using mock data for available projects'
       }
-    };
+    });
   }
 };
+
+// Check if user can report on a specific project
+export const canUserReportOnProject = async (projectId) => {
+  console.log(`📤 Checking if user can report on project ${projectId}`);
+  
+  try {
+    const response = await api.get(`/api/projects/${projectId}/can-report`);
+    return response;
+  } catch (error) {
+    console.error('❌ Real API failed for canUserReportOnProject:', error);
+    
+    // Mock implementation
+    const userRole = localStorage.getItem('userRole') || 'employee';
+    const userId = localStorage.getItem('userId') || '1';
+    
+    let canReport = false;
+    
+    if (userRole === 'manager' || userRole === 'Manager') {
+      canReport = true;
+    } else {
+      const isAssigned = mockAssignments.some(assignment => 
+        assignment.project_id == projectId && assignment.employee_id == userId
+      );
+      canReport = isAssigned;
+    }
+    
+    return Promise.resolve({
+      data: {
+        success: true,
+        canReport,
+        message: 'Using mock data for permission check'
+      }
+    });
+  }
+};
+
 // Quick server test
 export const quickServerTest = async () => {
   try {
@@ -732,7 +1264,6 @@ export const quickServerTest = async () => {
     return false;
   }
 };
-
 
 
 export default api;

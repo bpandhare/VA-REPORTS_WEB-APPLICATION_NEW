@@ -1,40 +1,45 @@
-// db.js - Updated with better error handling
-import mysql from 'mysql2'
+// db-simple.js - Ultra simple version
+import mysql from 'mysql2/promise'
+import dotenv from 'dotenv'
 
-// Create connection pool with better configuration
+dotenv.config()
+
+// Simple direct connection for testing
+export async function getDbConnection() {
+  try {
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || 'root',
+      database: process.env.DB_NAME || 'vickhardth_ops',
+      port: process.env.DB_PORT || 3306
+    })
+    
+    console.log('✅ Database connected successfully')
+    return connection
+    
+  } catch (err) {
+    console.error('❌ Database connection error:', err)
+    throw err
+  }
+}
+
+// Or use a simple pool
 const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'root',
-  database: process.env.DB_NAME || 'vickhardth_ops', // Make sure this matches
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  database: process.env.DB_NAME || 'vickhardth_ops'
 })
 
-// Test the connection on startup
-pool.getConnection((err, connection) => {
-  if (err) {
-    console.error('Database connection failed:', err)
-    return
-  }
-  
-  console.log('✅ Database connected successfully')
-  
-  // Verify the database name
-  connection.query('SELECT DATABASE() as db', (err, results) => {
-    if (err) {
-      console.error('Error checking database:', err)
-    } else {
-      console.log(`📊 Connected to database: ${results[0].db}`)
-    }
-    connection.release()
+// Test it
+pool.getConnection()
+  .then(conn => {
+    console.log('✅ Pool connection successful')
+    conn.release()
   })
-})
+  .catch(err => {
+    console.error('❌ Pool connection failed:', err)
+  })
 
-// Add promise wrapper
-const promisePool = pool.promise()
-
-export default promisePool
+export default pool
