@@ -1,74 +1,28 @@
 import { useMemo, useState, useEffect } from 'react'
-import { useAuth } from './AuthContext'  // Make sure this path is correct
+import { useAuth } from './AuthContext'
 import './AuthForm.css'
 
 function AuthForm() {
   const { login } = useAuth()
-  const [mode, setMode] = useState('login')
+  const [mode, setMode] = useState('login') // 'login' | 'register'
   const [employeeId, setEmployeeId] = useState('')
-  const [managerId, setManagerId] = useState('')
   const [username, setUsername] = useState('')
   const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [dob, setDob] = useState('')
   const [phone, setPhone] = useState('')
   const [role, setRole] = useState('')
   const [loading, setLoading] = useState(false)
   const [alert, setAlert] = useState(null)
-  const [isIdTaken, setIsIdTaken] = useState(false)
-  const [checkingId, setCheckingId] = useState(false)
+  const [isEmployeeIdTaken, setIsEmployeeIdTaken] = useState(false)
+  const [checkingEmployeeId, setCheckingEmployeeId] = useState(false)
   const [checkingPhone, setCheckingPhone] = useState(false)
   const [isPhoneTaken, setIsPhoneTaken] = useState(false)
-  const [checkingEmail, setCheckingEmail] = useState(false)
-  const [isEmailTaken, setIsEmailTaken] = useState(false)
-  
-  // Get API endpoint base URL
+   
   const endpointBase = useMemo(
     () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/auth') ?? '/api/auth',
     []
   )
-  
-  // Determine if current role is a manager role
-  const isManagerRole = useMemo(() => {
-    return role && (
-      role.toLowerCase().includes('manager') || 
-      role.toLowerCase().includes('team leader') ||
-      role.toLowerCase().includes('senior assistant')
-    )
-  }, [role])
-
-  // Function to validate Employee ID format: E001 (E + 1-5 digits, max 6 chars)
-  const validateEmployeeId = (id) => {
-    if (!id) return 'Employee ID is required'
-    
-    const empIdRegex = /^E\d{1,5}$/
-    if (!empIdRegex.test(id)) {
-      return 'Employee ID must be in format E001 (E followed by 1-5 digits)'
-    }
-    
-    if (id.length > 6) {
-      return 'Employee ID cannot exceed 6 characters'
-    }
-    
-    return null
-  }
-
-  // Function to validate Manager ID format: M001 (M + 1-5 digits, max 6 chars)
-  const validateManagerId = (id) => {
-    if (!id) return 'Manager ID is required'
-    
-    const managerIdRegex = /^E\d{1,5}$/
-    if (!managerIdRegex.test(id)) {
-      return 'Manager ID must be in format E001 (E followed by 1-5 digits)'
-    }
-    
-    if (id.length > 6) {
-      return 'Manager ID cannot exceed 6 characters'
-    }
-    
-    return null
-  }
 
   // Phone number validation
   const validatePhone = (phoneNumber) => {
@@ -87,45 +41,6 @@ function AuthForm() {
     return null
   }
 
-  // Email validation
-  const validateEmail = (email) => {
-    if (!email) return 'Email address is required'
-    
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      return 'Please enter a valid email address'
-    }
-    
-    // Additional validation for company email if needed
-    // if (!email.toLowerCase().endsWith('@vickhardth.com')) {
-    //   return 'Please use your company email address (@vickhardth.com)'
-    // }
-    
-    return null
-  }
-
-  // Handle Manager ID input with format validation
-  const handleManagerIdChange = (e) => {
-    const value = e.target.value.toUpperCase()
-    
-    if (value === 'E' || /^E\d{0,5}$/.test(value)) {
-      setManagerId(value)
-    } else if (value === '') {
-      setManagerId('')
-    }
-  }
-
-  // Handle Employee ID input with format validation
-  const handleEmployeeIdChange = (e) => {
-    const value = e.target.value.toUpperCase()
-    
-    if (value === 'E' || /^E\d{0,5}$/.test(value)) {
-      setEmployeeId(value)
-    } else if (value === '') {
-      setEmployeeId('')
-    }
-  }
-
   // Handle phone input with formatting
   const handlePhoneChange = (e) => {
     let value = e.target.value
@@ -141,58 +56,43 @@ function AuthForm() {
     setPhone(value)
   }
 
-  // Handle email input
-  const handleEmailChange = (e) => {
-    const value = e.target.value.trim()
-    setEmail(value)
-  }
-
-  // Check if ID (Employee ID or Manager ID) is already taken
+  // Check if employee ID is already taken when user stops typing
   useEffect(() => {
-    const checkId = async () => {
-      const currentId = isManagerRole ? managerId : employeeId
-      
-      if (mode === 'register' && currentId && role) {
-        let idError = null
-        
-        if (isManagerRole) {
-          idError = validateManagerId(currentId)
-        } else {
-          idError = validateEmployeeId(currentId)
-        }
-        
-        if (idError) {
-          setIsIdTaken(false)
+    const checkEmployeeId = async () => {
+      if (mode === 'register' && employeeId && role !== 'Manager') {
+        const empIdError = validateEmployeeId(employeeId)
+        if (empIdError) {
+          setIsEmployeeIdTaken(false)
           return
         }
 
-        setCheckingId(true)
+        setCheckingEmployeeId(true)
         try {
-          const response = await fetch(`${endpointBase}/check-id/${currentId}`, {
+          const response = await fetch(`${endpointBase}/check-employee-id/${employeeId}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
           })
 
           if (response.ok) {
             const data = await response.json()
-            setIsIdTaken(!data.available)
+            setIsEmployeeIdTaken(!data.available)
           } else {
-            setIsIdTaken(false)
+            setIsEmployeeIdTaken(false)
           }
         } catch (error) {
-          console.error('Error checking ID:', error)
-          setIsIdTaken(false)
+          console.error('Error checking employee ID:', error)
+          setIsEmployeeIdTaken(false)
         } finally {
-          setCheckingId(false)
+          setCheckingEmployeeId(false)
         }
       } else {
-        setIsIdTaken(false)
+        setIsEmployeeIdTaken(false)
       }
     }
 
-    const timer = setTimeout(checkId, 500)
+    const timer = setTimeout(checkEmployeeId, 500)
     return () => clearTimeout(timer)
-  }, [employeeId, managerId, mode, role, isManagerRole, endpointBase])
+  }, [employeeId, mode, role, endpointBase])
 
   // Check if phone number is already taken when user stops typing
   useEffect(() => {
@@ -234,54 +134,54 @@ function AuthForm() {
     return () => clearTimeout(timer)
   }, [phone, mode, endpointBase])
 
-  // Check if email is already taken
+  // Reset employee ID and validation when role changes
   useEffect(() => {
-    const checkEmail = async () => {
-      if (mode === 'register' && email) {
-        const emailError = validateEmail(email)
-        
-        if (emailError) {
-          setIsEmailTaken(false)
-          return
-        }
-
-        setCheckingEmail(true)
-        try {
-          const response = await fetch(`${endpointBase}/check-email/${encodeURIComponent(email)}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-          })
-
-          if (response.ok) {
-            const data = await response.json()
-            setIsEmailTaken(!data.available)
-          } else {
-            setIsEmailTaken(false)
-          }
-        } catch (error) {
-          console.error('Error checking email:', error)
-          setIsEmailTaken(false)
-        } finally {
-          setCheckingEmail(false)
-        }
-      } else {
-        setIsEmailTaken(false)
-      }
+    if (role === 'Manager') {
+      setIsEmployeeIdTaken(false)
     }
+  }, [role])
 
-    const timer = setTimeout(checkEmail, 500)
-    return () => clearTimeout(timer)
-  }, [email, mode, endpointBase])
-
-  // Reset IDs when role changes
-  useEffect(() => {
-    if (isManagerRole) {
-      setEmployeeId('')
-    } else {
-      setManagerId('')
+  // Function to validate Employee ID format: E001 (E + 1-5 digits, max 6 chars)
+  const validateEmployeeId = (id) => {
+    if (!id) return 'Employee ID is required'
+    
+    const empIdRegex = /^E\d{1,5}$/
+    if (!empIdRegex.test(id)) {
+      return 'Employee ID must be in format E001 (E followed by 1-5 digits)'
     }
-    setIsIdTaken(false)
-  }, [role, isManagerRole])
+    
+    if (id.length > 6) {
+      return 'Employee ID cannot exceed 6 characters'
+    }
+    
+    return null
+  }
+
+  // Function to validate Manager ID format: E001 (E + 1-5 digits, max 6 chars)
+  const validateManagerId = (id) => {
+    if (!id) return 'Manager ID is required'
+    
+    const managerIdRegex = /^E\d{1,5}$/
+    if (!managerIdRegex.test(id)) {
+      return 'Manager ID must be in format E001 (E followed by 1-5 digits)'
+    }
+    
+    if (id.length > 6) {
+      return 'Manager ID cannot exceed 6 characters'
+    }
+    
+    return null
+  }
+
+  // Handle Employee ID input with format validation
+  const handleEmployeeIdChange = (e) => {
+    const value = e.target.value.toUpperCase()
+    
+    // Accept E prefix for all roles
+    if (value === 'E' || /^E\d{0,5}$/.test(value) || value === '') {
+      setEmployeeId(value)
+    }
+  }
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -296,27 +196,32 @@ function AuthForm() {
         role: role || ''
       }
 
+      const isManager = role === 'Manager'
+      
       // Add additional fields based on mode
       if (mode === 'register') {
         requestBody.full_name = fullName.trim() || username.trim()
         requestBody.dob = dob
-        requestBody.email = email.trim()
         
         const cleanPhone = phone.replace(/\D/g, '')
         requestBody.phone = cleanPhone
         
-        // Add appropriate ID based on role
-        if (isManagerRole && managerId) {
-          requestBody.manager_id = managerId.trim().toUpperCase()
-        } else if (!isManagerRole && employeeId) {
-          requestBody.employee_id = employeeId.trim().toUpperCase()
+        // Include the appropriate ID field based on role
+        if (employeeId) {
+          if (isManager) {
+            requestBody.manager_id = employeeId.trim().toUpperCase()
+          } else {
+            requestBody.employee_id = employeeId.trim().toUpperCase()
+          }
         }
       } else {
-        // For login: add appropriate ID based on role
-        if (isManagerRole && managerId) {
-          requestBody.manager_id = managerId.trim().toUpperCase()
-        } else if (!isManagerRole && employeeId) {
-          requestBody.employee_id = employeeId.trim().toUpperCase()
+        // For login: include the appropriate ID field
+        if (employeeId) {
+          if (isManager) {
+            requestBody.manager_id = employeeId.trim().toUpperCase()
+          } else {
+            requestBody.employee_id = employeeId.trim().toUpperCase()
+          }
         }
       }
 
@@ -357,21 +262,6 @@ function AuthForm() {
           return
         }
 
-        // Email validation
-        const emailError = validateEmail(email)
-        if (emailError) {
-          setAlert({ type: 'error', message: emailError })
-          setLoading(false)
-          return
-        }
-
-        if (isEmailTaken) {
-          setAlert({ type: 'error', message: 'This email address is already registered' })
-          setLoading(false)
-          return
-        }
-
-        // Phone validation
         const cleanPhone = phone.replace(/\D/g, '')
         const phoneError = validatePhone(cleanPhone)
         if (phoneError) {
@@ -387,27 +277,28 @@ function AuthForm() {
         }
 
         // Validate ID based on role
-        if (isManagerRole) {
-          const managerIdError = validateManagerId(managerId)
+        if (isManager) {
+          // Managers need manager_id
+          const managerIdError = validateManagerId(employeeId)
           if (managerIdError) {
             setAlert({ type: 'error', message: managerIdError })
             setLoading(false)
             return
           }
         } else {
+          // Non-managers need employee_id
           const empIdError = validateEmployeeId(employeeId)
           if (empIdError) {
             setAlert({ type: 'error', message: empIdError })
             setLoading(false)
             return
           }
-        }
 
-        if (isIdTaken) {
-          const idType = isManagerRole ? 'Manager ID' : 'Employee ID'
-          setAlert({ type: 'error', message: `This ${idType} is already taken` })
-          setLoading(false)
-          return
+          if (isEmployeeIdTaken) {
+            setAlert({ type: 'error', message: 'This Employee ID is already taken' })
+            setLoading(false)
+            return
+          }
         }
       } else {
         // For login: basic validation
@@ -418,26 +309,26 @@ function AuthForm() {
         }
 
         // Validate ID based on role
-        if (isManagerRole) {
-          if (!managerId) {
-            setAlert({ type: 'error', message: 'Manager ID is required for manager roles' })
+        if (isManager) {
+          // Managers need manager_id for login
+          if (!employeeId) {
+            setAlert({ type: 'error', message: 'Manager ID is required for manager login' })
             setLoading(false)
             return
           }
-          
-          const managerIdError = validateManagerId(managerId)
+          const managerIdError = validateManagerId(employeeId)
           if (managerIdError) {
             setAlert({ type: 'error', message: managerIdError })
             setLoading(false)
             return
           }
         } else {
+          // Non-managers need employee_id for login
           if (!employeeId) {
             setAlert({ type: 'error', message: 'Employee ID is required for non-manager roles' })
             setLoading(false)
             return
           }
-          
           const empIdError = validateEmployeeId(employeeId)
           if (empIdError) {
             setAlert({ type: 'error', message: empIdError })
@@ -485,8 +376,8 @@ function AuthForm() {
         name: data.user?.fullName || data.user?.username || data.username,
         role: data.user?.role || data.role,
         employeeId: data.user?.employeeId || data.user?.employee_id || data.employee_id || null,
-        phone: data.user?.phone || data.phone || null,
-        email: data.user?.email || data.email || null
+        managerId: data.user?.managerId || data.user?.manager_id || data.manager_id || null,
+        phone: data.user?.phone || data.phone || null
       })
       
       if (loginSuccess) {
@@ -505,27 +396,34 @@ function AuthForm() {
     }
   }
 
-  // Show appropriate ID field based on role
-  const showIdField = mode === 'login' || (mode === 'register' && role)
-  
-  const isIdRequired = () => {
-    return true // Both Employee ID and Manager ID are required for their respective roles
+  const getPlaceholderText = () => {
+    if (mode === 'register') {
+      return "E001, E002, E12345"
+    } else {
+      return role === 'Manager' ? "Enter Manager ID (E001)" : "Enter Employee ID (E001)"
+    }
   }
 
   const handleModeToggle = () => {
     setMode(mode === 'login' ? 'register' : 'login')
-    setEmployeeId('')
-    setManagerId('')
-    setUsername('')
-    setFullName('')
-    setEmail('')
-    setPassword('')
-    setDob('')
-    setPhone('')
-    setRole('')
-    setIsIdTaken(false)
+    if (mode === 'login') {
+      setEmployeeId('')
+      setUsername('')
+      setFullName('')
+      setPassword('')
+      setDob('')
+      setPhone('')
+    } else {
+      setEmployeeId('')
+      setUsername('')
+      setFullName('')
+      setPassword('')
+      setDob('')
+      setPhone('')
+      setRole('')
+    }
+    setIsEmployeeIdTaken(false)
     setIsPhoneTaken(false)
-    setIsEmailTaken(false)
   }
 
   return (
@@ -551,19 +449,19 @@ function AuthForm() {
           </div>
         </div>
       </div>
-
+      
       <header className="vh-form-header">
         <div>
           <p className="vh-form-label">Welcome</p>
           <h2>{mode === 'login' ? 'Login to Dashboard' : 'Create New Account'}</h2>
           <p>
             {mode === 'login' 
-              ? isManagerRole
-                ? 'Managers: Login with Manager ID (E001), username and password'
-                : 'Employees: Login with Employee ID (E001), username and password'
-              : isManagerRole
-                ? 'Managers: Create account with Manager ID (format: E001)'
-                : 'Employees: Create account with Employee ID (format: E001)'
+              ? role === 'Manager'
+                ? 'Managers: Login with Manager ID (format: E001), username and password'
+                : 'Use Employee ID (format: E001), username and password'
+              : role === 'Manager'
+                ? 'Create manager account with Manager ID (format: E001)'
+                : 'Create account with Employee ID (format: E001)'
             }
           </p>
         </div>
@@ -576,7 +474,7 @@ function AuthForm() {
       )}
 
       <form className="vh-form" onSubmit={handleSubmit}>
-        {/* Role Selection */}
+        {/* 1. Role Selection - Always First */}
         <label>
           <span>Your Role *</span>
           <select
@@ -591,51 +489,59 @@ function AuthForm() {
             <option value="Engineer">Engineer</option>
           </select>
           <small className="form-hint">
-            Select role to determine login method
+            {mode === 'login' 
+              ? 'Select role to determine login method'
+              : role === 'Manager'
+                ? 'Managers have full access to all features'
+                : 'Role determines access level and permissions'
+            }
           </small>
         </label>
 
-        {/* ID Field - Conditionally shown based on role */}
-        {showIdField && role && (
-          <label>
-            <span>{isManagerRole ? 'Manager ID' : 'Employee ID'} *</span>
+        {/* 2. ID Field - Always Second */}
+        <label>
+          <span>{role === 'Manager' ? 'Manager ID *' : 'Employee ID *'}</span>
+          {mode === 'register' && role !== 'Manager' ? (
             <div className="input-with-status">
               <input
                 type="text"
-                value={isManagerRole ? managerId : employeeId}
-                onChange={isManagerRole ? handleManagerIdChange : handleEmployeeIdChange}
-                placeholder={isManagerRole ? 
-                  (mode === 'register' ? "E001, E002, E12345" : "Enter Manager ID") : 
-                  (mode === 'register' ? "E001, E002, E12345" : "Enter Employee ID")
-                }
-                required={isIdRequired()}
-                title={isManagerRole ? 
-                  "Format: E followed by 1-5 digits (e.g., E001, E12345)" : 
-                  "Format: E followed by 1-5 digits (e.g., E001, E12345)"
-                }
+                value={employeeId}
+                onChange={handleEmployeeIdChange}
+                placeholder={getPlaceholderText()}
+                required
+                title="Format: E followed by 1-5 digits (e.g., E001, E12345)"
                 maxLength="6"
                 style={{ textTransform: 'uppercase' }}
-                disabled={checkingId}
+                disabled={checkingEmployeeId}
               />
-              {checkingId && (
+              {checkingEmployeeId && (
                 <span className="checking-status">Checking...</span>
               )}
-              {isIdTaken && !checkingId && (
+              {isEmployeeIdTaken && !checkingEmployeeId && (
                 <span className="error-status">Already taken</span>
               )}
-              {!isIdTaken && (isManagerRole ? managerId : employeeId) && !checkingId && mode === 'register' && (
+              {!isEmployeeIdTaken && employeeId && !checkingEmployeeId && (
                 <span className="success-status">Available</span>
               )}
             </div>
-            <small className="form-hint">
-              {isManagerRole ? 
-                'Format: E followed by 1-5 digits (e.g., E001, E12345)' : 
-                'Format: E followed by 1-5 digits (e.g., E001, E12345)'
-              }
-            </small>
-          </label>
-        )}
+          ) : (
+            <input
+              type="text"
+              value={employeeId}
+              onChange={handleEmployeeIdChange}
+              placeholder={getPlaceholderText()}
+              required
+              title="Format: E followed by 1-5 digits (e.g., E001, E12345)"
+              maxLength="6"
+              style={{ textTransform: 'uppercase' }}
+            />
+          )}
+          <small className="form-hint">
+            Format: E followed by 1-5 digits (e.g., E001, E12345)
+          </small>
+        </label>
 
+        {/* 3. Username - Always Third */}
         <label>
           <span>Username *</span>
           <input
@@ -647,51 +553,7 @@ function AuthForm() {
           />
         </label>
 
-        {/* Email Field - Only for registration */}
-        {mode === 'register' && (
-          <label>
-            <span>Email Address *</span>
-            <div className="input-with-status">
-              <input
-                type="email"
-                value={email}
-                onChange={handleEmailChange}
-                placeholder="employee@vickhardth.com"
-                required
-                disabled={checkingEmail}
-              />
-              {checkingEmail && (
-                <span className="checking-status">Checking...</span>
-              )}
-              {isEmailTaken && !checkingEmail && (
-                <span className="error-status">Already registered</span>
-              )}
-              {!isEmailTaken && email && !checkingEmail && !validateEmail(email) && (
-                <span className="success-status">Available</span>
-              )}
-            </div>
-            <small className="form-hint">
-              Enter your company email address
-            </small>
-          </label>
-        )}
-
-        {/* Full Name Field - Only for registration */}
-        {mode === 'register' && (
-          <label>
-            <span>Full Name {!fullName && <span className="optional">(Optional)</span>}</span>
-            <input
-              type="text"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Enter your full name"
-            />
-            <small className="form-hint">
-              Will use username if not provided
-            </small>
-          </label>
-        )}
-
+        {/* 4. Password - Always Fourth */}
         <label>
           <span>Password *</span>
           <input
@@ -707,61 +569,73 @@ function AuthForm() {
           </small>
         </label>
 
-        {/* Phone Number Field - Only for registration */}
+        {/* Additional Fields for Registration Only */}
         {mode === 'register' && (
-          <label>
-            <span>Phone Number *</span>
-            <div className="input-with-status">
+          <>
+            {/* Full Name Field */}
+            <label>
+              <span>Full Name {!fullName && <span className="optional">(Optional)</span>}</span>
               <input
-                type="tel"
-                value={phone}
-                onChange={handlePhoneChange}
-                placeholder="123-456-7890"
-                required
-                pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}"
-                title="Please enter a valid 10-digit phone number"
-                disabled={checkingPhone}
+                type="text"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Enter your full name"
               />
-              {checkingPhone && (
-                <span className="checking-status">Checking...</span>
-              )}
-              {isPhoneTaken && !checkingPhone && (
-                <span className="error-status">Already registered</span>
-              )}
-              {!isPhoneTaken && phone.replace(/\D/g, '').length === 10 && !checkingPhone && (
-                <span className="success-status">Available</span>
-              )}
-            </div>
-            <small className="form-hint">
-              10-digit mobile number starting with 6, 7, 8, or 9
-            </small>
-          </label>
-        )}
+              <small className="form-hint">
+                Will use username if not provided
+              </small>
+            </label>
 
-        {/* Date of Birth - Only for registration */}
-        {mode === 'register' && (
-          <label>
-            <span>Date of Birth *</span>
-            <input
-              type="date"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-              max={new Date().toISOString().slice(0, 10)}
-              required
-            />
-            <small className="form-hint">
-              Must be a valid date before today
-            </small>
-          </label>
+            {/* Phone Number Field */}
+            <label>
+              <span>Phone Number *</span>
+              <div className="input-with-status">
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={handlePhoneChange}
+                  placeholder="123-456-7890"
+                  required
+                  pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}"
+                  title="Please enter a valid 10-digit phone number"
+                  disabled={checkingPhone}
+                />
+                {checkingPhone && (
+                  <span className="checking-status">Checking...</span>
+                )}
+                {isPhoneTaken && !checkingPhone && (
+                  <span className="error-status">Already registered</span>
+                )}
+                {!isPhoneTaken && phone.replace(/\D/g, '').length === 10 && !checkingPhone && (
+                  <span className="success-status">Available</span>
+                )}
+              </div>
+              <small className="form-hint">
+                10-digit mobile number starting with 6, 7, 8, or 9
+              </small>
+            </label>
+
+            {/* Date of Birth Field */}
+            <label>
+              <span>Date of Birth *</span>
+              <input
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+                required
+              />
+              <small className="form-hint">
+                Must be a valid date before today
+              </small>
+            </label>
+          </>
         )}
 
         <div className="vh-form-actions">
           <button 
             type="submit" 
-            disabled={loading || 
-              (mode === 'register' && isIdTaken) || 
-              (mode === 'register' && isPhoneTaken) ||
-              (mode === 'register' && isEmailTaken)}
+            disabled={loading || (mode === 'register' && role !== 'Manager' && isEmployeeIdTaken) || (mode === 'register' && isPhoneTaken)}
             className={loading ? 'loading' : ''}
           >
             {loading ? (
@@ -786,11 +660,11 @@ function AuthForm() {
 
         {/* Company Footer */}
         <div className="company-footer">
-          <p className="copyright">© {new Date().getFullYear()} VickHardth Automation. All rights reserved.</p>
+          <p className="copyright">© {new Date().getFullYear()} VickHardth Engineering. All rights reserved.</p>
           <p className="support">For support, contact: support@vickhardth.com</p>
         </div>
       </form>
-    </section>
+    </section> 
   )
 }
 

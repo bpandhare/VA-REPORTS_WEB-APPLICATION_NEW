@@ -27,12 +27,17 @@ function ManagerDashboard() {
     uniqueEngineersCount: 0,
     overtimeCount: 0
   });
+  const [dailyReports, setDailyReports] = useState([]);
+  const [groupedReports, setGroupedReports] = useState({});
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [selectedReport, setSelectedReport] = useState(null);
 
   const BASE_URL = 'http://localhost:5000';
 
   useEffect(() => {
     if (token && user) {
       fetchDashboardData();
+      fetchAllDailyReports();
     }
   }, [token, user, selectedDate]);
 
@@ -57,7 +62,7 @@ function ManagerDashboard() {
     }
   };
 
-  // FIXED: Better fetchHourlyReports with error handling
+  // UPDATED: Enhanced fetchHourlyReports to include employee names
   const fetchHourlyReports = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/hourly-report/${selectedDate}`, {
@@ -76,22 +81,48 @@ function ManagerDashboard() {
       const data = await response.json();
       
       // Process activities to include employee names
+      let activitiesData = [];
       if (Array.isArray(data)) {
-        setActivities(data);
-        calculateAttendance(data);
+        activitiesData = data;
       } else if (data.activities && Array.isArray(data.activities)) {
-        setActivities(data.activities);
-        calculateAttendance(data.activities);
+        activitiesData = data.activities;
       } else {
         setActivities([]);
+        return;
       }
+      
+      // Enhance activities with employee names using available employees data
+      const enhancedActivities = activitiesData.map(activity => {
+        let employeeName = 'Unknown';
+        
+        // Try to find employee by user_id
+        const emp = employees.find(e => 
+          e.id === activity.user_id || 
+          e._id === activity.user_id ||
+          e.employeeId === activity.employee_id
+        );
+        
+        if (emp) {
+          employeeName = emp.username;
+        } else if (activity.employeeName) {
+          employeeName = activity.employeeName;
+        }
+        
+        return {
+          ...activity,
+          employeeName: employeeName
+        };
+      });
+      
+      setActivities(enhancedActivities);
+      calculateAttendance(enhancedActivities);
     } catch (error) {
       console.error('Error fetching hourly reports:', error);
       setActivities([]);
     }
   };
 
-  // FIXED: Enhanced fetchAllUsers with better error handling
+  // UPDATED: Enhanced fetchAllUsers with better normalization
   const fetchAllUsers = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/auth/users`, {
@@ -118,26 +149,28 @@ function ManagerDashboard() {
         usersData = data.data;
       }
       
-      console.log('Fetched users:', usersData.length); // Debug log
+      console.log('Fetched users:', usersData.length);
       
       // Filter out admin and current user
       const filteredUsers = usersData.filter(u => {
         const userRole = (u.role || '').toLowerCase();
         return userRole !== 'admin' && 
                u.id !== user?.id && 
-               u._id !== user?.id;
+               u._id !== user?.id &&
+               u.userId !== user?.id;
       });
       
-      // Normalize user data
+      // Normalize user data with multiple ID formats
       const normalizedUsers = filteredUsers.map(user => ({
-        id: user.id || user._id,
-        username: user.username || user.name || 'Unknown',
-        employeeId: user.employeeId || user.employee_id || 'N/A',
-        role: user.role || 'Employee',
+        id: user.id || user._id || user.userId,
+        username: user.username || user.name || user.fullName || 'Unknown',
+        employeeId: user.employeeId || user.employee_id || user.emp_id || 'N/A',
+        role: user.role || user.designation || 'Employee',
         email: user.email || '',
-        phone: user.phone || ''
+        phone: user.phone || user.contact || ''
       }));
       
+      console.log('Normalized users:', normalizedUsers);
       setEmployees(normalizedUsers);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -145,11 +178,10 @@ function ManagerDashboard() {
     }
   };
 
-  // FIXED: Updated fetchMomRecords with better error handling
   const fetchMomRecords = async () => {
     try {
       setMomLoading(true);
-      console.log('Fetching MoM records for date:', selectedDate); // Debug log
+      console.log('Fetching MoM records for date:', selectedDate);
       
       const response = await fetch(`${BASE_URL}/api/employee-activity/mom-records?date=${selectedDate}`, {
         headers: {
@@ -158,7 +190,7 @@ function ManagerDashboard() {
         }
       });
       
-      console.log('MoM response status:', response.status); // Debug log
+      console.log('MoM response status:', response.status);
       
       if (!response.ok) {
         console.warn(`MoM records fetch failed: ${response.status}`);
@@ -168,7 +200,7 @@ function ManagerDashboard() {
       }
       
       const data = await response.json();
-      console.log('MoM data received:', data); // Debug log
+      console.log('MoM data received:', data);
       
       if (data.success && Array.isArray(data.moms)) {
         setMomRecords(data.moms);
@@ -197,7 +229,6 @@ function ManagerDashboard() {
     }
   };
 
-  // New function to fetch MoM statistics
   const fetchMomStats = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/employee-activity/mom-stats?startDate=${selectedDate}&endDate=${selectedDate}`, {
@@ -234,6 +265,37 @@ function ManagerDashboard() {
     } catch (error) {
       console.error('Error fetching pending leaves:', error);
       setPendingLeaves([]);
+    }
+  };
+
+  const fetchAllDailyReports = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${BASE_URL}/api/daily-target/all-reports?date=${selectedDate}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDailyReports(data.reports || []);
+        
+        // Group reports by user for better display
+        const groupedByUser = {};
+        (data.reports || []).forEach(report => {
+          if (!groupedByUser[report.user_id]) {
+            groupedByUser[report.user_id] = [];
+          }
+          groupedByUser[report.user_id].push(report);
+        });
+        setGroupedReports(groupedByUser);
+      }
+    } catch (error) {
+      console.error('Error fetching daily reports:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -402,7 +464,6 @@ function ManagerDashboard() {
   const downloadMomPdf = async (mom) => {
     try {
       alert('PDF generation would start here');
-      // Your existing PDF download logic
     } catch (err) {
       console.error('Error generating PDF:', err);
       alert('Failed to generate PDF');
@@ -411,7 +472,6 @@ function ManagerDashboard() {
 
   const downloadMomTxt = (mom) => {
     try {
-      // Your existing TXT download logic
       const content = `
 MoM Details:
 Date: ${mom.mom_date}
@@ -437,6 +497,10 @@ Man Hours: ${mom.man_hours}
     }
   };
 
+  const downloadMomFromReport = (report) => {
+    alert(`Download MoM for report ${report.id}`);
+  };
+
   const manageProject = (projectName) => {
     alert(`Manage project: ${projectName}`);
   };
@@ -445,7 +509,6 @@ Man Hours: ${mom.man_hours}
     alert(`Monitoring employee: ${employeeId}`);
   };
 
-  // Add this function to test the API endpoint
   const testMomEndpoint = async () => {
     try {
       console.log('Testing MoM endpoint...');
@@ -461,6 +524,50 @@ Man Hours: ${mom.man_hours}
     } catch (error) {
       console.error('Test error:', error);
     }
+  };
+
+  // Helper function to get employee name from activities data
+  const getEmployeeNameFromActivity = (activity) => {
+    // First try to find by user_id
+    if (activity.user_id) {
+      const emp = employees.find(e => 
+        e.id === activity.user_id || 
+        e._id === activity.user_id
+      );
+      if (emp) return emp.username;
+    }
+    
+    // Try by employee_id
+    if (activity.employee_id) {
+      const emp = employees.find(e => 
+        e.employeeId === activity.employee_id
+      );
+      if (emp) return emp.username;
+    }
+    
+    // Use the stored employeeName from enhanced data
+    if (activity.employeeName) {
+      return activity.employeeName;
+    }
+    
+    return 'Unknown';
+  };
+
+  // Helper function to get employee ID from activities data
+  const getEmployeeIdFromActivity = (activity) => {
+    if (activity.user_id) {
+      const emp = employees.find(e => 
+        e.id === activity.user_id || 
+        e._id === activity.user_id
+      );
+      if (emp) return emp.employeeId;
+    }
+    
+    if (activity.employee_id) {
+      return activity.employee_id;
+    }
+    
+    return 'N/A';
   };
 
   if (loading) {
@@ -494,7 +601,15 @@ Man Hours: ${mom.man_hours}
           />
           <button onClick={goToNextDay} className="date-btn">→</button>
           <button onClick={fetchDashboardData} className="refresh-btn">Refresh</button>
-          {/* <button onClick={testMomEndpoint} className="test-btn">Test API</button> */}
+          <button 
+            onClick={() => {
+              console.log('Debug: Employees', employees);
+              console.log('Debug: Activities', activities);
+            }}
+            className="debug-btn"
+          >
+            Debug
+          </button>
         </div>
       </div>
 
@@ -529,6 +644,12 @@ Man Hours: ${mom.man_hours}
           onClick={() => setActiveTab('activities')}
         >
           Activities ({activities.length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'dailyReports' ? 'active' : ''}`}
+          onClick={() => setActiveTab('dailyReports')}
+        >
+          Daily Reports ({dailyReports.length})
         </button>
       </div>
 
@@ -792,7 +913,7 @@ Man Hours: ${mom.man_hours}
         </div>
       )}
 
-      {/* Activities Tab */}
+      {/* Activities Tab - FIXED VERSION */}
       {activeTab === 'activities' && (
         <div className="activities-section">
           <h2>Hourly Activities Report</h2>
@@ -818,18 +939,20 @@ Man Hours: ${mom.man_hours}
                   </tr>
                 ) : (
                   activities.map((activity, index) => {
-                    // Find employee name
-                    const employee = employees.find(emp => emp.id === activity.user_id);
+                    const employeeName = getEmployeeNameFromActivity(activity);
+                    const employeeId = getEmployeeIdFromActivity(activity);
+                    const employeeInitial = employeeName.charAt(0);
+                    
                     return (
                       <tr key={index}>
                         <td>
                           <div className="activity-employee">
                             <div className="activity-avatar">
-                              {employee?.username?.charAt(0) || activity.employeeName?.charAt(0) || 'U'}
+                              {employeeInitial}
                             </div>
                             <div>
-                              <div className="activity-name">{employee?.username || activity.employeeName || 'Unknown'}</div>
-                              <div className="activity-id">{employee?.employeeId || 'N/A'}</div>
+                              <div className="activity-name">{employeeName}</div>
+                              <div className="activity-id">{employeeId}</div>
                             </div>
                           </div>
                         </td>
@@ -846,6 +969,109 @@ Man Hours: ${mom.man_hours}
                       </tr>
                     );
                   })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Daily Reports Tab */}
+      {activeTab === 'dailyReports' && (
+        <div className="daily-reports-section">
+          <h2>Daily Target Reports - {formatDateDisplay(selectedDate)}</h2>
+          <p>Total Reports: {dailyReports.length} | Site: {dailyReports.filter(r => r.location_type === 'site').length} | Office: {dailyReports.filter(r => r.location_type === 'office').length} | Leave: {dailyReports.filter(r => r.location_type === 'leave').length}</p>
+          
+          <div className="reports-table-container">
+            <table className="reports-table">
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Report Type</th>
+                  <th>Time</th>
+                  <th>Project/Customer</th>
+                  <th>Daily Target</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyReports.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" className="no-data">
+                      No daily reports found for this date.
+                    </td>
+                  </tr>
+                ) : (
+                  dailyReports.map((report, index) => (
+                    <tr key={report.id || index}>
+                      <td>
+                        <div className="report-employee">
+                          <div className="report-avatar">
+                            {report.employee_name?.charAt(0) || 'U'}
+                          </div>
+                          <div>
+                            <div className="report-name">{report.employee_name || 'Unknown'}</div>
+                            <div className="report-id">{report.employee_code || 'N/A'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`report-type-badge ${report.location_type}`}>
+                          {report.report_type}
+                          {report.leave_type && ` (${report.leave_type})`}
+                        </span>
+                      </td>
+                      <td>{report.display_time}</td>
+                      <td>
+                        {report.location_type === 'leave' ? (
+                          <span className="leave-remark">{report.remark || 'No remark'}</span>
+                        ) : (
+                          <div>
+                            <div><strong>Project:</strong> {report.project_no || 'N/A'}</div>
+                            <div><strong>Customer:</strong> {report.customer_name || 'N/A'}</div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="report-target">
+                        {report.daily_target_achieved ? 
+                          (report.daily_target_achieved.length > 50 ? 
+                            `${report.daily_target_achieved.substring(0, 50)}...` : 
+                            report.daily_target_achieved) : 
+                          'N/A'}
+                      </td>
+                      <td>
+                        {report.location_type === 'leave' ? (
+                          <span className={`leave-status ${report.leave_status || 'pending'}`}>
+                            {report.leave_status || 'Pending'}
+                          </span>
+                        ) : (
+                          <span className="status-completed">Completed</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="report-actions">
+                          <button 
+                            onClick={() => {
+                              setSelectedReport(report);
+                              setShowReportModal(true);
+                            }}
+                            className="btn-view-report"
+                          >
+                            View
+                          </button>
+                          {report.has_mom && (
+                            <button 
+                              onClick={() => downloadMomFromReport(report)}
+                              className="btn-download-mom"
+                            >
+                              MOM
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -963,6 +1189,124 @@ Man Hours: ${mom.man_hours}
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Details Modal */}
+      {showReportModal && selectedReport && (
+        <div className="report-modal-overlay">
+          <div className="report-modal">
+            <div className="report-modal-header">
+              <h3>Daily Report Details</h3>
+              <button onClick={() => setShowReportModal(false)} className="close-modal">×</button>
+            </div>
+            <div className="report-modal-content">
+              <div className="report-details-grid">
+                <div className="detail-group">
+                  <h4>Employee Information</h4>
+                  <div className="detail-row">
+                    <span>Name:</span>
+                    <strong>{selectedReport.employee_name || 'N/A'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Employee ID:</span>
+                    <span>{selectedReport.employee_code || 'N/A'}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Role:</span>
+                    <span>{selectedReport.employee_role || 'N/A'}</span>
+                  </div>
+                </div>
+                
+                <div className="detail-group">
+                  <h4>Report Information</h4>
+                  <div className="detail-row">
+                    <span>Report Date:</span>
+                    <span>{selectedReport.report_date}</span>
+                  </div>
+                  <div className="detail-row">
+                    <span>Report Type:</span>
+                    <span className={`type-badge ${selectedReport.location_type}`}>
+                      {selectedReport.report_type}
+                    </span>
+                  </div>
+                  {selectedReport.location_type !== 'leave' && (
+                    <>
+                      <div className="detail-row">
+                        <span>In Time:</span>
+                        <span>{selectedReport.in_time || 'N/A'}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span>Out Time:</span>
+                        <span>{selectedReport.out_time || 'N/A'}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                
+                {selectedReport.location_type === 'leave' ? (
+                  <div className="detail-group">
+                    <h4>Leave Details</h4>
+                    <div className="detail-row">
+                      <span>Leave Type:</span>
+                      <span>{selectedReport.leave_type || 'N/A'}</span>
+                    </div>
+                    <div className="detail-row">
+                      <span>Leave Status:</span>
+                      <span className={`status-badge ${selectedReport.leave_status || 'pending'}`}>
+                        {selectedReport.leave_status || 'Pending'}
+                      </span>
+                    </div>
+                    {selectedReport.leave_approved_by && (
+                      <div className="detail-row">
+                        <span>Approved By:</span>
+                        <span>{selectedReport.leave_approved_by}</span>
+                      </div>
+                    )}
+                    {selectedReport.remark && (
+                      <div className="detail-row">
+                        <span>Remark:</span>
+                        <span>{selectedReport.remark}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="detail-group">
+                      <h4>Project Details</h4>
+                      <div className="detail-row">
+                        <span>Project No:</span>
+                        <span>{selectedReport.project_no || 'N/A'}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span>Customer:</span>
+                        <span>{selectedReport.customer_name || 'N/A'}</span>
+                      </div>
+                      <div className="detail-row">
+                        <span>Contact Person:</span>
+                        <span>{selectedReport.customer_person || 'N/A'}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="detail-group">
+                      <h4>Target Information</h4>
+                      <div className="detail-row">
+                        <span>Daily Target Planned:</span>
+                        <div className="target-content">{selectedReport.daily_target_planned || 'N/A'}</div>
+                      </div>
+                      <div className="detail-row">
+                        <span>Daily Target Achieved:</span>
+                        <div className="target-content">{selectedReport.daily_target_achieved || 'N/A'}</div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="report-modal-footer">
+              <button onClick={() => setShowReportModal(false)} className="btn-close">Close</button>
             </div>
           </div>
         </div>

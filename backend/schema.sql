@@ -388,6 +388,7 @@ ADD COLUMN leave_rejection_reason TEXT,
 ADD COLUMN leave_approval_remark TEXT,
 ADD COLUMN leave_cancellation_reason TEXT;
 
+LTER TABLE users ADD COLUMN email VARCHAR(255) UNIQUE;
 
 -- Add these columns to activities table
 ALTER TABLE activities 

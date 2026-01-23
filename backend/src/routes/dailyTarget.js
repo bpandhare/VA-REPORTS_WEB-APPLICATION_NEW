@@ -95,6 +95,113 @@ router.get('/employees', verifyToken, async (req, res) => {
   }
 });
 
+// GET all daily reports for a specific date (for managers)
+router.get('/all-reports', verifyToken, async (req, res) => {
+  try {
+    const userRole = req.user.role?.toLowerCase();
+    const { date } = req.query;
+    
+    // Only managers can access all reports
+    if (!userRole.includes('manager') && !userRole.includes('team leader')) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only managers can view all reports.' 
+      });
+    }
+    
+    if (!date) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Date parameter is required' 
+      });
+    }
+    
+    const [reports] = await pool.execute(`
+      SELECT 
+        dtr.*,
+        u.username as employee_name,
+        u.employee_id as employee_code,
+        u.role as employee_role,
+        u.phone as employee_phone
+      FROM daily_target_reports dtr
+      LEFT JOIN users u ON dtr.user_id = u.id
+      WHERE dtr.report_date = ?
+      ORDER BY u.username, dtr.created_at DESC
+    `, [date]);
+    
+    // Format the data for frontend
+    const formattedReports = reports.map(report => {
+      // Determine report type
+      let reportType = 'Unknown';
+      if (report.location_type === 'leave') {
+        const leaveType = LEAVE_TYPES.find(lt => lt.id === report.leave_type);
+        reportType = leaveType ? `${leaveType.name} Leave` : 'Leave';
+      } else if (report.location_type === 'site') {
+        reportType = 'Site Report';
+      } else if (report.location_type === 'office') {
+        reportType = 'Office Report';
+      }
+      
+      return {
+        ...report,
+        report_type: reportType,
+        display_time: report.in_time && report.out_time ? 
+          `${report.in_time} - ${report.out_time}` : 'N/A',
+        has_mom: !!report.mom_report_path
+      };
+    });
+    
+    res.json({
+      success: true,
+      reports: formattedReports,
+      count: formattedReports.length,
+      date: date
+    });
+    
+  } catch (error) {
+    console.error('Failed to fetch all reports:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch reports' 
+    });
+  }
+});
+
+// GET consolidated hourly achievements for a date
+router.get('/hourly-achievements/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userId = req.user.id;
+    
+    const [hourlyReports] = await pool.execute(
+      `SELECT hourly_achieved, daily_target_achieved 
+       FROM hourly_reports 
+       WHERE user_id = ? AND report_date = ? 
+       AND (hourly_achieved IS NOT NULL OR daily_target_achieved IS NOT NULL)`,
+      [userId, date]
+    );
+    
+    // Combine all achievements
+    const achievements = hourlyReports
+      .map(report => report.hourly_achieved || report.daily_target_achieved)
+      .filter(Boolean)
+      .join('\n');
+    
+    res.json({
+      success: true,
+      achievements: achievements,
+      count: hourlyReports.length,
+      date: date
+    });
+    
+  } catch (error) {
+    console.error('Failed to fetch hourly achievements:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch hourly achievements' 
+    });
+  }
+});
 // Get current user's info
 router.get('/current-user', verifyToken, async (req, res) => {
   try {

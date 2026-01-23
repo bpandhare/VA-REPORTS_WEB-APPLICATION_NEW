@@ -688,6 +688,16 @@ export const updateProject = async (id, updates) => {
     return mockResponse;
   }
 };
+// Add this function to your existing api.js file
+export const fetchEmployeesList = async () => {
+  try {
+    const response = await api.get('/api/employees/list'); // Adjust the endpoint as needed
+    return response;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 // In your api.js - update the deleteProject function
 export const deleteProject = async (projectId) => {
@@ -1309,6 +1319,7 @@ export const canUserReportOnProject = async (projectId) => {
     });
   }
 };
+
 
 // Quick server test
 export const quickServerTest = async () => {

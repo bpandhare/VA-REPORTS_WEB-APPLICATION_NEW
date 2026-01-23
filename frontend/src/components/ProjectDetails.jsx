@@ -2125,6 +2125,7 @@ const ProjectDetails = () => {
                   </button>
                 </div>
               ) : (
+                
                 projectReports.map(report => (
                   <div key={report.id} className="report-card">
                     <div className="report-header">

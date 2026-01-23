@@ -64,20 +64,28 @@ const isTeamLeaderOrManager = (user) => {
 
 // GET - Get all activities with filters (UPDATED WITH ROLE-BASED ACCESS)
 // GET - Get all activities with filters (FIXED VERSION)
+// In src/routes/activity.js - Fix the activities endpoint
+
+// GET - Get all activities with filters (FIXED VERSION)
 router.get('/activities', verifyTokenAndRole(), async (req, res) => {
   try {
     const { 
+      limit = 20, 
+      page = 1,
       date, 
       engineerId, 
       status, 
       startDate, 
-      endDate,
-      page = 1,
-      limit = 50 
+      endDate
     } = req.query;
+
+    console.log(`📝 [ACTIVITIES] Fetching activities with params:`, { 
+      limit, page, date, engineerId, status, startDate, endDate 
+    });
 
     const userId = req.user.id;
     const isUserTeamLeaderOrManager = isTeamLeaderOrManager(req.user);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // Build WHERE conditions
     let whereConditions = [];
@@ -130,8 +138,24 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
       whereClause = 'WHERE ' + whereConditions.join(' AND ');
     }
 
-    // Build the main query
-    const baseQuery = `
+    console.log('🔍 [ACTIVITIES] Where clause:', whereClause);
+    console.log('🔍 [ACTIVITIES] Base params:', params);
+
+    // Count total records
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM activities a
+      LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
+      ${whereClause}
+    `;
+    
+    console.log('🔍 [ACTIVITIES] Count query:', countQuery);
+    
+    const [countResult] = await pool.execute(countQuery, params);
+    const total = countResult[0]?.total || 0;
+
+    // Main query with pagination
+    const mainQuery = `
       SELECT 
         a.id,
         DATE_FORMAT(a.date, '%Y-%m-%d') as date,
@@ -151,87 +175,23 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
       FROM activities a
       LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
       ${whereClause}
+      ORDER BY a.date DESC, a.logged_at DESC
+      LIMIT ? OFFSET ?
     `;
 
-    console.log('🔍 [DEBUG] Base params:', params);
-    console.log('🔍 [DEBUG] Number of params:', params.length);
+    // Create new array for main query with pagination params
+    const mainParams = [...params];
+    // IMPORTANT: Convert to numbers
+    mainParams.push(parseInt(limit, 10), parseInt(offset, 10));
 
-    // Count total records - FIXED: Use same conditions
-    const countQuery = `
-      SELECT COUNT(*) as total 
-      FROM activities a
-      LEFT JOIN users u ON (a.engineer_id = u.employee_id OR a.engineer_name = u.username)
-      ${whereClause}
-    `;
+    console.log('🔍 [ACTIVITIES] Main query:', mainQuery);
+    console.log('🔍 [ACTIVITIES] Main params:', mainParams);
+    console.log('🔍 [ACTIVITIES] Main params count:', mainParams.length);
+
+    // Execute the query
+    const [activities] = await pool.execute(mainQuery, mainParams);
     
-    console.log('🔍 [DEBUG] Count query:', countQuery);
-    console.log('🔍 [DEBUG] Count params:', params);
-    
-    const [countResult] = await pool.execute(countQuery, params);
-    const total = countResult[0]?.total || 0;
-
-    // Add ordering and pagination
-    const orderClause = `ORDER BY a.date DESC, a.logged_at DESC`;
-    const paginationClause = `LIMIT ? OFFSET ?`;
-
-    // If client requests CSV export, run the query without pagination and return CSV
-    if (req.query.format === 'csv' || req.query.export === 'csv') {
-      const exportQuery = `
-        ${baseQuery}
-        ${orderClause}
-      `;
-      console.log('🔍 [DEBUG] Export query (CSV):', exportQuery);
-      const [exportRows] = await pool.execute(exportQuery, params);
-
-      // Build CSV header
-      const headers = [
-        'id','date','time','engineer_name','engineer_id','project','location','activity_target','problem','status','leave_reason','start_time','end_time','activity_type','logged_at'
-      ];
-
-      const escapeCsv = (v) => {
-        if (v === null || v === undefined) return '';
-        const s = String(v);
-        if (s.includes(',') || s.includes('\n') || s.includes('"')) {
-          return '"' + s.replace(/"/g, '""') + '"';
-        }
-        return s;
-      };
-
-      const rows = exportRows.map(r => headers.map(h => escapeCsv(r[h] ?? r[h.toLowerCase()]) ).join(','));
-
-      const csv = [headers.join(','), ...rows].join('\n');
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="activities-${new Date().toISOString().slice(0,10)}.csv"`);
-      return res.send(csv);
-    }
-
-    // FIXED: Create new array for pagination params
-    const paginationParams = [...params, parseInt(limit), (parseInt(page) - 1) * parseInt(limit)];
-
-    const finalQuery = `
-      ${baseQuery}
-      ${orderClause}
-      ${paginationClause}
-    `;
-
-    console.log('🔍 [DEBUG] Final query:', finalQuery);
-    console.log('🔍 [DEBUG] Final params:', paginationParams);
-    console.log('🔍 [DEBUG] Final params count:', paginationParams.length);
-
-    const [activities] = await pool.execute(finalQuery, paginationParams);
-    console.log('✅ Query executed successfully, found', activities.length, 'activities');
-
-    // Get today's stats
-    const today = new Date().toISOString().split('T')[0];
-    const [stats] = await pool.execute(`
-      SELECT 
-        COUNT(DISTINCT engineer_id) as active_employees,
-        SUM(CASE WHEN status = 'leave' THEN 1 ELSE 0 END) as on_leave,
-        SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count
-      FROM activities 
-      WHERE DATE(date) = DATE(?)
-    `, [today]);
+    console.log(`✅ [ACTIVITIES] Found ${activities.length} activities`);
 
     res.json({
       success: true,
@@ -253,16 +213,14 @@ router.get('/activities', verifyTokenAndRole(), async (req, res) => {
         loggedAt: act.logged_at
       })),
       total,
-      activeEmployees: stats[0]?.active_employees || 0,
-      onLeave: stats[0]?.on_leave || 0,
-      absentCount: stats[0]?.absent_count || 0,
       page: parseInt(page),
       totalPages: Math.ceil(total / limit),
-      userRole: req.user.role
+      userRole: req.user.role,
+      accessLevel: isUserTeamLeaderOrManager ? 'full' : 'restricted'
     });
 
   } catch (error) {
-    console.error('❌ Failed to fetch activities:', error);
+    console.error('❌ [ACTIVITIES] Failed:', error);
     res.status(500).json({ 
       success: false,
       message: 'Unable to fetch activities', 
@@ -664,7 +622,6 @@ router.get('/stats', verifyTokenAndRole(), async (req, res) => {
 });
 
 // GET - Get attendance data for specific date (UPDATED WITH ROLE-BASED ACCESS)
-// GET - Get attendance data for specific date (UPDATED WITH ROLE-BASED ACCESS)
 router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
   try {
     const { date } = req.query;
@@ -680,19 +637,9 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
 
     console.log(`👥 [ATTENDANCE] Fetching for date: ${date} by user ${userId} (${req.user.role})`);
 
-    // Step 1: Get all employees from the users table
-    let allEmployeesQuery = `
-      SELECT username, employee_id, role
-      FROM users
-      WHERE role IN ('Engineer', 'Senior Engineer', 'Team Leader', 'Manager')
-    `;
-    const [allEmployees] = await pool.execute(allEmployeesQuery);
-
-    console.log(`📊 Total employees in system: ${allEmployees.length}`);
-
-    // Step 2: Get employees who have activities (with role-based filtering)
+    // Get employees with activities (with role-based filtering)
     let activitiesQuery = `
-      SELECT DISTINCT
+      SELECT 
         COALESCE(u.username, a.engineer_name) as engineer_name,
         COALESCE(u.employee_id, a.engineer_id) as engineer_id,
         a.status,
@@ -710,9 +657,9 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
     
     let activitiesParams = [date];
     
-    // Step 3: Get employees with daily target reports (with role-based filtering)
+    // Get employees with daily target reports (with role-based filtering)
     let dailyReportsQuery = `
-      SELECT DISTINCT
+      SELECT 
         COALESCE(u.username, d.incharge) as engineer_name,
         u.employee_id as engineer_id,
         CASE WHEN d.location_type = 'leave' THEN 'leave' ELSE 'present' END as status,
@@ -742,6 +689,7 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
         const userEmpId = currentUser[0].employee_id;
         const username = currentUser[0].username;
         
+        // FIXED: Use simpler condition
         activitiesQuery += ` AND (a.engineer_id = ? OR a.engineer_name = ?)`;
         activitiesParams.push(userEmpId, username);
         
@@ -761,213 +709,81 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
     const [activities] = await pool.execute(activitiesQuery, activitiesParams);
     const [dailyReports] = await pool.execute(dailyReportsQuery, dailyReportsParams);
 
-    // Step 4: Combine both datasets
-    const allRecords = [...activities, ...dailyReports];
+    // Combine both datasets
+    const allEmployees = [...activities, ...dailyReports];
     
     console.log(`📊 Found ${activities.length} activity records and ${dailyReports.length} daily report records for ${date}`);
 
-    // Step 5: Calculate attendance by comparing with all employees
-    const presentEmployees = new Set();
-    const absentEmployees = new Set();
-    const leaveEmployees = new Set();
-    
-    // Create a map of employees who have reported
-    const reportedEmployees = new Map();
+    // Calculate attendance stats
+    const presentEmployees = [];
+    const absentEmployees = [];
+    const leaveEmployees = [];
     
     // Process activities
     activities.forEach(emp => {
-      const empName = emp.engineer_name;
-      const empId = emp.engineer_id;
-      const key = empId || empName;
-      
-      if (!reportedEmployees.has(key)) {
-        reportedEmployees.set(key, {
-          name: empName,
-          id: empId,
-          status: emp.status,
-          source: 'activity'
-        });
-      }
-      
       if (emp.status === 'present') {
-        presentEmployees.add(key);
+        presentEmployees.push(emp.engineer_name);
       } else if (emp.status === 'absent') {
-        absentEmployees.add(key);
+        absentEmployees.push(emp.engineer_name);
       } else if (emp.status === 'leave') {
-        leaveEmployees.add(key);
+        leaveEmployees.push(emp.engineer_name);
       }
     });
     
-    // Process daily reports
+    // Process daily reports (respect reported status)
     dailyReports.forEach(emp => {
-      const empName = emp.engineer_name;
-      const empId = emp.engineer_id;
-      const key = empId || empName;
-      
-      if (!reportedEmployees.has(key)) {
-        reportedEmployees.set(key, {
-          name: empName,
-          id: empId,
-          status: emp.status,
-          source: 'daily_report'
-        });
-      }
-      
       if (emp.status === 'present') {
-        presentEmployees.add(key);
+        presentEmployees.push(emp.engineer_name);
       } else if (emp.status === 'leave') {
-        leaveEmployees.add(key);
+        leaveEmployees.push(emp.engineer_name);
+      } else if (emp.status === 'absent') {
+        absentEmployees.push(emp.engineer_name);
       }
     });
-
-    // Step 6: Identify truly absent employees (no report at all)
-    // Only managers/team leaders should see the full absent list
-    if (isUserTeamLeaderOrManager) {
-      // For managers/team leaders: show all employees who didn't report
-      allEmployees.forEach(emp => {
-        const key = emp.employee_id || emp.username;
-        const isPresent = presentEmployees.has(key);
-        const isLeave = leaveEmployees.has(key);
-        const isMarkedAbsent = absentEmployees.has(key);
-        const hasReported = reportedEmployees.has(key);
-        
-        // If employee hasn't reported at all, mark as absent
-        if (!hasReported && !isLeave && !isMarkedAbsent) {
-          absentEmployees.add(key);
-        }
-      });
-    } else {
-      // For regular employees: only check their own status
-      const [currentUser] = await pool.execute(
-        'SELECT employee_id, username FROM users WHERE id = ?',
-        [userId]
-      );
-      
-      if (currentUser.length > 0) {
-        const userEmpId = currentUser[0].employee_id;
-        const username = currentUser[0].username;
-        const key = userEmpId || username;
-        
-        const isPresent = presentEmployees.has(key);
-        const isLeave = leaveEmployees.has(key);
-        const isMarkedAbsent = absentEmployees.has(key);
-        const hasReported = reportedEmployees.has(key);
-        
-        // If regular employee hasn't reported at all, mark as absent
-        if (!hasReported && !isLeave && !isMarkedAbsent) {
-          absentEmployees.add(key);
-        }
-      }
-    }
-
-    // Step 7: Prepare final arrays
-    const uniquePresent = Array.from(presentEmployees);
-    const uniqueAbsent = Array.from(absentEmployees);
-    const uniqueLeave = Array.from(leaveEmployees);
     
-    // Step 8: Get details for all records to display
-    const allRecordsWithDetails = allRecords.map(emp => ({
-      engineerName: emp.engineer_name,
-      engineerId: emp.engineer_id,
-      project: emp.project,
-      status: emp.status,
-      activityTarget: emp.activity_target,
-      startTime: emp.start_time,
-      endTime: emp.end_time,
-      leaveReason: emp.leave_reason,
-      problem: emp.problem,
-      source: emp.status === 'present' && !emp.engineer_id ? 'daily_report' : 'activity'
-    }));
-
-    // Step 9: Also add absent employees who have no records
-    if (isUserTeamLeaderOrManager) {
-      // For managers: add absent employees with minimal info
-      uniqueAbsent.forEach(absentKey => {
-        const hasDetail = allRecords.some(emp => {
-          const empKey = emp.engineer_id || emp.engineer_name;
-          return empKey === absentKey;
-        });
-        
-        if (!hasDetail) {
-          // Find the employee in allEmployees to get name
-          const absentEmp = allEmployees.find(emp => {
-            const empKey = emp.employee_id || emp.username;
-            return empKey === absentKey;
-          });
-          
-          if (absentEmp) {
-            allRecordsWithDetails.push({
-              engineerName: absentEmp.username,
-              engineerId: absentEmp.employee_id,
-              project: 'No report',
-              status: 'absent',
-              activityTarget: 'No activity reported',
-              startTime: null,
-              endTime: null,
-              leaveReason: null,
-              problem: 'No attendance record found',
-              source: 'system'
-            });
-          }
-        }
-      });
-    }
-
-    // Step 10: Calculate totals
-    const totalEmployees = allEmployees.length;
-    const presentCount = uniquePresent.length;
-    const absentCount = uniqueAbsent.length;
-    const leaveCount = uniqueLeave.length;
-
-    console.log(`📊 Attendance Summary for ${date}:`);
-    console.log(`   Total Employees: ${totalEmployees}`);
-    console.log(`   Present: ${presentCount}`);
-    console.log(`   Absent: ${absentCount}`);
-    console.log(`   Leave: ${leaveCount}`);
+    // Get unique employees
+    const uniquePresent = [...new Set(presentEmployees)];
+    const uniqueAbsent = [...new Set(absentEmployees)];
+    const uniqueLeave = [...new Set(leaveEmployees)];
+    
+    // Calculate totals
+    const totalEmployees = new Set([
+      ...activities.map(a => a.engineer_name),
+      ...dailyReports.map(d => d.engineer_name)
+    ]).size;
 
     res.json({
       success: true,
       date,
       summary: {
-        total: totalEmployees,
+        total: allEmployees.length,
         totalEmployees,
-        present: presentCount,
-        absent: absentCount,
-        leave: leaveCount
+        present: uniquePresent.length,
+        absent: uniqueAbsent.length,
+        leave: uniqueLeave.length
       },
-      presentEmployees: uniquePresent.map(key => {
-        const emp = allEmployees.find(e => {
-          const empKey = e.employee_id || e.username;
-          return empKey === key;
-        });
-        return emp ? emp.username : key;
-      }),
-      absentEmployees: uniqueAbsent.map(key => {
-        const emp = allEmployees.find(e => {
-          const empKey = e.employee_id || e.username;
-          return empKey === key;
-        });
-        return emp ? emp.username : key;
-      }),
-      leaveEmployees: uniqueLeave.map(key => {
-        const emp = allEmployees.find(e => {
-          const empKey = e.employee_id || e.username;
-          return empKey === key;
-        });
-        return emp ? emp.username : key;
-      }),
-      activities: allRecordsWithDetails,
+      presentEmployees: uniquePresent,
+      absentEmployees: uniqueAbsent,
+      leaveEmployees: uniqueLeave,
+      activities: allEmployees.map(emp => ({
+        engineerName: emp.engineer_name,
+        engineerId: emp.engineer_id,
+        project: emp.project,
+        status: emp.status,
+        activityTarget: emp.activity_target,
+        startTime: emp.start_time,
+        endTime: emp.end_time,
+        leaveReason: emp.leave_reason,
+        problem: emp.problem,
+        source: emp.status === 'present' && !emp.engineer_id ? 'daily_report' : 'activity'
+      })),
       counts: {
         activityRecords: activities.length,
         dailyReportRecords: dailyReports.length,
-        totalRecords: allRecords.length,
-        systemTotalEmployees: totalEmployees
+        totalRecords: allEmployees.length
       },
       userRole: req.user.role,
-      accessLevel: isUserTeamLeaderOrManager ? 'full' : 'restricted',
-      note: isUserTeamLeaderOrManager 
-        ? 'Absent count includes employees with no activity or daily report for the selected date'
-        : 'You can only see your own attendance status'
+      accessLevel: isUserTeamLeaderOrManager ? 'full' : 'restricted'
     });
   } catch (error) {
     console.error('❌ [ATTENDANCE] Failed:', error);
@@ -978,6 +794,7 @@ router.get('/attendance', verifyTokenAndRole(), async (req, res) => {
     });
   }
 });
+
 // GET - Get attendance data for date range (UPDATED WITH ROLE-BASED ACCESS)
 router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
   try {
@@ -1225,7 +1042,81 @@ router.get('/attendance/range', verifyTokenAndRole(), async (req, res) => {
   }
 });
 
-// ========== ENGINEER INFO ENDPOINT (MOVED BEFORE EXPORT) ==========
+// --- OLD ENDPOINTS (Keep for backward compatibility) ---
+
+const requiredFields = ['logDate', 'logTime', 'projectName']
+
+const insertSql = `
+  INSERT INTO site_activity (
+    log_date, log_time, project_name, daily_target, hourly_activity,
+    problems_faced, resolution_status, problem_start, problem_end,
+    support_problem, support_start, support_end, support_engineer,
+    engineer_remark, incharge_remark, created_at
+  )
+  VALUES (
+    :logDate, :logTime, :projectName, :dailyTarget, :hourlyActivity,
+    :problemsFaced, :resolutionStatus, :problemStart, :problemEnd,
+    :supportProblem, :supportStart, :supportEnd, :supportEngineer,
+    :engineerRemark, :inchargeRemark, NOW()
+  )
+`
+
+// Original GET endpoint (keep as is)
+router.get('/', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, project_name AS projectName, log_date AS logDate,
+              log_time AS logTime, daily_target AS dailyTarget,
+              hourly_activity AS hourlyActivity, problems_faced AS problemsFaced,
+              resolution_status AS resolutionStatus, support_engineer AS supportEngineer,
+              created_at AS createdAt
+         FROM site_activity
+        ORDER BY created_at DESC
+        LIMIT 20`
+    )
+    res.json(rows)
+  } catch (error) {
+    console.error('Failed to fetch entries', error)
+    res.status(500).json({ message: 'Unable to fetch entries' })
+  }
+})
+
+// Original POST endpoint (keep as is)
+router.post('/', async (req, res) => {
+  try {
+    for (const field of requiredFields) {
+      if (!req.body[field]) {
+        return res.status(422).json({ message: `${field} is required` })
+      }
+    }
+
+    const payload = {
+      dailyTarget: '',
+      hourlyActivity: '',
+      problemsFaced: '',
+      resolutionStatus: '',
+      problemStart: null,
+      problemEnd: null,
+      supportProblem: '',
+      supportStart: null,
+      supportEnd: null,
+      supportEngineer: '',
+      engineerRemark: '',
+      inchargeRemark: '',
+      ...req.body,
+    }
+
+    await pool.execute(insertSql, payload)
+
+    res.status(201).json({ message: 'Entry recorded' })
+  } catch (error) {
+    console.error('Failed to insert entry', error)
+    res.status(500).json({ message: 'Unable to save entry' })
+  }
+})
+
+export default router
+
 // GET - Engineer info + recent activity/reports
 router.get('/engineer/:identifier', verifyTokenAndRole(), async (req, res) => {
   try {
@@ -1234,7 +1125,7 @@ router.get('/engineer/:identifier', verifyTokenAndRole(), async (req, res) => {
     // Try to find user by employee_id, username, or id
     // Select only commonly-available columns; some DBs may not have email column
     const [users] = await pool.execute(
-      'SELECT id, username, employee_id, role, phone, email FROM users WHERE employee_id = ? OR username = ? OR id = ? LIMIT 1',
+      'SELECT id, username, employee_id, role, phone FROM users WHERE employee_id = ? OR username = ? OR id = ? LIMIT 1',
       [identifier, identifier, identifier]
     )
 
@@ -1316,78 +1207,3 @@ router.get('/engineer/:identifier', verifyTokenAndRole(), async (req, res) => {
     res.status(500).json({ success: false, message: 'Unable to fetch engineer info', error: error.message })
   }
 })
-
-// ========== OLD ENDPOINTS (Keep for backward compatibility) ==========
-
-const requiredFields = ['logDate', 'logTime', 'projectName']
-
-const insertSql = `
-  INSERT INTO site_activity (
-    log_date, log_time, project_name, daily_target, hourly_activity,
-    problems_faced, resolution_status, problem_start, problem_end,
-    support_problem, support_start, support_end, support_engineer,
-    engineer_remark, incharge_remark, created_at
-  )
-  VALUES (
-    :logDate, :logTime, :projectName, :dailyTarget, :hourlyActivity,
-    :problemsFaced, :resolutionStatus, :problemStart, :problemEnd,
-    :supportProblem, :supportStart, :supportEnd, :supportEngineer,
-    :engineerRemark, :inchargeRemark, NOW()
-  )
-`
-
-// Original GET endpoint (keep as is)
-router.get('/', async (_req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT id, project_name AS projectName, log_date AS logDate,
-              log_time AS logTime, daily_target AS dailyTarget,
-              hourly_activity AS hourlyActivity, problems_faced AS problemsFaced,
-              resolution_status AS resolutionStatus, support_engineer AS supportEngineer,
-              created_at AS createdAt
-         FROM site_activity
-        ORDER BY created_at DESC
-        LIMIT 20`
-    )
-    res.json(rows)
-  } catch (error) {
-    console.error('Failed to fetch entries', error)
-    res.status(500).json({ message: 'Unable to fetch entries' })
-  }
-})
-
-// Original POST endpoint (keep as is)
-router.post('/', async (req, res) => {
-  try {
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(422).json({ message: `${field} is required` })
-      }
-    }
-
-    const payload = {
-      dailyTarget: '',
-      hourlyActivity: '',
-      problemsFaced: '',
-      resolutionStatus: '',
-      problemStart: null,
-      problemEnd: null,
-      supportProblem: '',
-      supportStart: null,
-      supportEnd: null,
-      supportEngineer: '',
-      engineerRemark: '',
-      inchargeRemark: '',
-      ...req.body,
-    }
-
-    await pool.execute(insertSql, payload)
-
-    res.status(201).json({ message: 'Entry recorded' })
-  } catch (error) {
-    console.error('Failed to insert entry', error)
-    res.status(500).json({ message: 'Unable to save entry' })
-  }
-})
-
-export default router

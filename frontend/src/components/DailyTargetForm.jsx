@@ -23,12 +23,12 @@ const defaultPayload = () => {
     customerPerson: '',
     customerContact: '',
     customerCountryCode: '+91',
-    customerAddress: '', // Add this
+    customerAddress: '',
     endCustomerName: '',
     endCustomerPerson: '',
     endCustomerContact: '',
     endCustomerCountryCode: '+91',
-    endCustomerAddress: '', // Add this
+    endCustomerAddress: '',
     projectNo: '',
     locationType: '',
     leaveType: '',
@@ -38,19 +38,16 @@ const defaultPayload = () => {
     momReport: null,
     dailyTargetPlanned: '',
     dailyTargetAchieved: '',
-    // Additional Activity fields
-    additionalActivity: 'No', // Yes/No
-    additionalActivityDetails: '', // Show if Yes
-    whoAddedActivity: '', // Show if Yes
-    // Daily Pending Target fields
-    dailyPendingTarget: 'No', // Yes/No
-    pendingTargetDetails: '', // Show if Yes
-    reasonPendingTarget: '', // Show if Yes
-    // Problem Faced fields
-    problemFaced: 'No', // Yes/No
-    problemDetails: '', // Show if Yes
-    problemResolved: '', // Show if Yes
-    problemResolutionDetails: '', // Show if problemResolved is Yes
+    additionalActivity: 'No',
+    additionalActivityDetails: '',
+    whoAddedActivity: '',
+    dailyPendingTarget: 'No',
+    pendingTargetDetails: '',
+    reasonPendingTarget: '',
+    problemFaced: 'No',
+    problemDetails: '',
+    problemResolved: '',
+    problemResolutionDetails: '',
     onlineSupportRequired: '',
     supportEngineerName: '',
     siteStartDate: today,
@@ -85,6 +82,12 @@ function DailyTargetForm() {
   const [lastSaved, setLastSaved] = useState(null)
   const [isDirty, setIsDirty] = useState(false)
   const [savedData, setSavedData] = useState(null)
+
+  // ========== HOURLY ACHIEVEMENTS STATES ==========
+  const [hourlyAchievements, setHourlyAchievements] = useState([])
+  const [loadingHourlyData, setLoadingHourlyData] = useState(false)
+  const [showHourlyAchievements, setShowHourlyAchievements] = useState(false)
+  const [autoMergeHourly, setAutoMergeHourly] = useState(true)
 
   // Country code options
   const countryCodes = [
@@ -200,6 +203,197 @@ function DailyTargetForm() {
     }
   ];
 
+  const endpoint = useMemo(
+    () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/daily-target') ?? 'http://localhost:5000/api/daily-target',
+    []
+  )
+
+  // ========== FUNCTION TO FETCH HOURLY ACHIEVEMENTS ==========
+  const fetchHourlyAchievements = async () => {
+    if (!token || !formData.reportDate || formData.locationType === 'leave') {
+      setAlert({ type: 'warning', message: 'Select a date first' });
+      return;
+    }
+
+    setLoadingHourlyData(true);
+    try {
+      console.log('🔍 Fetching hourly achievements for date:', formData.reportDate);
+      
+      const hourlyEndpoint = import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/hourly-report') 
+        ?? 'http://localhost:5000/api/hourly-report';
+      
+      const response = await fetch(
+        `${hourlyEndpoint}/${formData.reportDate}`,
+        {
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Hourly reports fetched:', data);
+        
+        if (data.length > 0) {
+          // Process each hourly report
+          const achievements = data.map((report, index) => {
+            // Clean and format the achievement text
+            let achievement = '';
+            
+            if (report.hourly_achieved && report.hourly_achieved.trim()) {
+              achievement = report.hourly_achieved.trim();
+            } else if (report.daily_target_achieved && report.daily_target_achieved.trim()) {
+              achievement = report.daily_target_achieved.trim();
+            } else if (report.hourly_activity && report.hourly_activity.trim()) {
+              achievement = `Activity: ${report.hourly_activity.trim()}`;
+            }
+            
+            // Clean up formatting
+            achievement = achievement
+              .replace(/^Achieved \d+:\s*/i, '')
+              .replace(/^Activity \d+:\s*/i, '')
+              .replace(/\n+/g, ' ')
+              .trim();
+            
+            return {
+              id: report.id || `hourly-${index}`,
+              timePeriod: report.time_period || `Session ${index + 1}`,
+              periodName: report.period_name || `Period ${index + 1}`,
+              achievement: achievement,
+              project: report.project_name || 'N/A',
+              hasData: !!achievement,
+              rawData: report
+            };
+          }).filter(item => item.hasData);
+          
+          setHourlyAchievements(achievements);
+          
+          // Auto-merge if enabled
+          if (autoMergeHourly && achievements.length > 0) {
+            const allAchievements = achievements
+              .map((item, idx) => `${idx + 1}. ${item.timePeriod}: ${item.achievement}`)
+              .join('\n');
+            
+            setFormData(prev => ({
+              ...prev,
+              dailyTargetAchieved: allAchievements
+            }));
+            setIsDirty(true);
+          }
+          
+          if (achievements.length > 0) {
+            setShowHourlyAchievements(true);
+            setAlert({ 
+              type: 'success', 
+              message: `Loaded ${achievements.length} hourly achievement(s)` 
+            });
+          } else {
+            setAlert({ type: 'info', message: 'No achievements found in hourly reports' });
+          }
+        } else {
+          setHourlyAchievements([]);
+          setAlert({ type: 'info', message: 'No hourly reports found for this date' });
+        }
+      } else {
+        setAlert({ type: 'warning', message: 'Unable to fetch hourly reports' });
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch hourly achievements:', error);
+      setAlert({ type: 'error', message: 'Error fetching hourly data' });
+    } finally {
+      setLoadingHourlyData(false);
+    }
+  };
+
+  // ========== FUNCTION TO ADD ACHIEVEMENT TO DAILY TARGET ==========
+  const addAchievementToDailyTarget = (achievementText) => {
+    if (!achievementText.trim()) return;
+    
+    // If dailyTargetAchieved is empty, start with this achievement
+    if (!formData.dailyTargetAchieved.trim()) {
+      setFormData(prev => ({
+        ...prev,
+        dailyTargetAchieved: `• ${achievementText.trim()}`
+      }));
+    } else {
+      // Add as new line if already has content
+      setFormData(prev => ({
+        ...prev,
+        dailyTargetAchieved: `${prev.dailyTargetAchieved}\n• ${achievementText.trim()}`
+      }));
+    }
+    
+    setIsDirty(true);
+    setAlert({ type: 'success', message: 'Achievement added to daily target' });
+  };
+
+  // ========== FUNCTION TO ADD ALL ACHIEVEMENTS ==========
+  const addAllAchievementsToDailyTarget = () => {
+    if (hourlyAchievements.length === 0) return;
+    
+    const allAchievements = hourlyAchievements
+      .map(item => `• ${item.timePeriod}: ${item.achievement.trim()}`)
+      .join('\n');
+    
+    setFormData(prev => ({
+      ...prev,
+      dailyTargetAchieved: prev.dailyTargetAchieved 
+        ? `${prev.dailyTargetAchieved}\n${allAchievements}`
+        : allAchievements
+    }));
+    
+    setIsDirty(true);
+    setAlert({ 
+      type: 'success', 
+      message: `Added ${hourlyAchievements.length} achievements to daily target` 
+    });
+  };
+
+  // ========== AUTO-FETCH WHEN DATE CHANGES ==========
+  useEffect(() => {
+    if (formData.reportDate && token && formData.locationType !== 'leave') {
+      // Small delay to avoid too many requests
+      const timer = setTimeout(() => {
+        fetchHourlyAchievements();
+      }, 500);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [formData.reportDate, formData.locationType, token]);
+
+  // Show notification about auto-saved data on mount (but don't auto-load)
+useEffect(() => {
+  const checkForAutoSavedData = () => {
+    const saved = localStorage.getItem(`daily-report-auto-save-${user?.id}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Only show notification if it's from today
+        if (parsed.date === new Date().toISOString().slice(0, 10)) {
+          setSavedData(parsed);
+          setLastSaved(parsed.timestamp);
+          
+          // Show notification about saved data
+          setAlert({
+            type: 'info',
+            message: 'Found auto-saved data from today. Click "Load Auto-saved" to restore it.',
+            autoClear: true
+          });
+          
+          setTimeout(() => setAlert(null), 5000);
+        }
+      } catch (error) {
+        console.error('Failed to parse auto-saved data:', error);
+      }
+    }
+  };
+
+  if (user?.id) {
+    checkForAutoSavedData();
+  }
+}, [user]);
   // Fetch customers from API or use predefined
   const fetchCustomers = async () => {
     setLoadingCustomers(true)
@@ -235,6 +429,151 @@ function DailyTargetForm() {
     }
   }
 
+  // Load auto-saved data on component mount
+useEffect(() => {
+ const loadAutoSavedData = () => {
+  if (!user?.id) {
+    setAlert({ type: 'warning', message: 'User not found' });
+    return;
+  }
+
+  let saved = null;
+  
+  // Try to load from localStorage first (for auto-saved data)
+  const localSaved = localStorage.getItem(`daily-report-auto-save-${user.id}`);
+  if (localSaved) {
+    try {
+      saved = JSON.parse(localSaved);
+      console.log('📂 Loaded from localStorage:', saved);
+    } catch (error) {
+      console.error('Failed to parse localStorage data:', error);
+    }
+  }
+  
+  // If no localStorage data, try sessionStorage
+  if (!saved) {
+    const sessionSaved = sessionStorage.getItem(`daily-report-session-${user.id}`);
+    if (sessionSaved) {
+      try {
+        saved = JSON.parse(sessionSaved);
+        console.log('📂 Loaded from sessionStorage:', saved);
+      } catch (error) {
+        console.error('Failed to parse sessionStorage data:', error);
+      }
+    }
+  }
+  
+  if (saved) {
+    // Check if the saved data is for today
+    const today = new Date().toISOString().slice(0, 10);
+    const savedDate = saved.date || saved.reportDate || today;
+    
+    if (savedDate === today) {
+      // Update savedData state
+      setSavedData({
+        ...saved,
+        timestamp: saved.timestamp || new Date().toISOString()
+      });
+      setLastSaved(saved.timestamp || new Date().toISOString());
+      
+      // Load ALL form data, not just partial fields
+      setFormData(prev => {
+        const newData = {
+          ...prev,
+          reportDate: saved.reportDate || prev.reportDate,
+          inTime: saved.inTime || prev.inTime,
+          outTime: saved.outTime || prev.outTime,
+          customerName: saved.customerName || prev.customerName,
+          customerPerson: saved.customerPerson || prev.customerPerson,
+          customerContact: saved.customerContact || prev.customerContact,
+          customerCountryCode: saved.customerCountryCode || prev.customerCountryCode,
+          customerAddress: saved.customerAddress || prev.customerAddress,
+          endCustomerName: saved.endCustomerName || prev.endCustomerName,
+          endCustomerPerson: saved.endCustomerPerson || prev.endCustomerPerson,
+          endCustomerContact: saved.endCustomerContact || prev.endCustomerContact,
+          endCustomerCountryCode: saved.endCustomerCountryCode || prev.endCustomerCountryCode,
+          endCustomerAddress: saved.endCustomerAddress || prev.endCustomerAddress,
+          projectNo: saved.projectNo || prev.projectNo,
+          locationType: saved.locationType || prev.locationType,
+          leaveType: saved.leaveType || prev.leaveType,
+          siteLocation: saved.siteLocation || prev.siteLocation,
+          locationLat: saved.locationLat || prev.locationLat,
+          locationLng: saved.locationLng || prev.locationLng,
+          dailyTargetPlanned: saved.dailyTargetPlanned || prev.dailyTargetPlanned,
+          dailyTargetAchieved: saved.dailyTargetAchieved || prev.dailyTargetAchieved,
+          additionalActivity: saved.additionalActivity || prev.additionalActivity,
+          additionalActivityDetails: saved.additionalActivityDetails || prev.additionalActivityDetails,
+          whoAddedActivity: saved.whoAddedActivity || prev.whoAddedActivity,
+          dailyPendingTarget: saved.dailyPendingTarget || prev.dailyPendingTarget,
+          pendingTargetDetails: saved.pendingTargetDetails || prev.pendingTargetDetails,
+          reasonPendingTarget: saved.reasonPendingTarget || prev.reasonPendingTarget,
+          problemFaced: saved.problemFaced || prev.problemFaced,
+          problemDetails: saved.problemDetails || prev.problemDetails,
+          problemResolved: saved.problemResolved || prev.problemResolved,
+          problemResolutionDetails: saved.problemResolutionDetails || prev.problemResolutionDetails,
+          onlineSupportRequired: saved.onlineSupportRequired || prev.onlineSupportRequired,
+          supportEngineerName: saved.supportEngineerName || prev.supportEngineerName,
+          siteStartDate: saved.siteStartDate || prev.siteStartDate,
+          siteEndDate: saved.siteEndDate || prev.siteEndDate,
+          incharge: saved.incharge || prev.incharge,
+          remark: saved.remark || prev.remark
+        };
+        
+        console.log('✅ Loaded auto-saved data:', newData);
+        return newData;
+      });
+      
+      // Handle location data if it exists
+      if (saved.locationType === 'site' && saved.locationLat && saved.locationLng) {
+        setLocationAccess(true);
+        // Reverse geocode the location
+        const lat = parseFloat(saved.locationLat);
+        const lng = parseFloat(saved.locationLng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          reverseGeocode(lat, lng).then((address) => {
+            if (address && address !== `${lat.toFixed(6)}, ${lng.toFixed(6)}`) {
+              setFormData(prev => ({
+                ...prev,
+                siteLocation: address,
+              }));
+            }
+          });
+        }
+      }
+      
+      // Handle leave type if it exists
+      if (saved.locationType === 'leave' && saved.leaveType) {
+        const typeDetails = leaveTypes.find(lt => lt.id === saved.leaveType);
+        setSelectedLeaveType(typeDetails);
+      }
+      
+      setIsDirty(false);
+      setAlert({
+        type: 'success',
+        message: `Auto-saved data loaded (${new Date(saved.timestamp).toLocaleTimeString()})`
+      });
+      
+      // Clear alert after 3 seconds
+      setTimeout(() => setAlert(null), 3000);
+      
+    } else {
+      setAlert({ 
+        type: 'warning', 
+        message: `Auto-saved data is from ${savedDate}. Only today's data (${today}) can be loaded.` 
+      });
+    }
+  } else {
+    setAlert({ 
+      type: 'info', 
+      message: 'No auto-saved data found for today.' 
+    });
+  }
+};
+
+  if (user?.id) {
+    loadAutoSavedData()
+  }
+}, [user])
   // Handle customer selection change
   const handleCustomerChange = (customerName) => {
     if (customerName === "Other") {
@@ -267,7 +606,7 @@ function DailyTargetForm() {
           customerName: customerName,
           customerPerson: selectedCustomer.contact_person || '',
           customerContact: selectedCustomer.contact_number || '',
-          customerCountryCode: '+91', // Default for Indian customers
+          customerCountryCode: '+91',
           customerAddress: selectedCustomer.address || ''
         }))
       } else {
@@ -327,7 +666,7 @@ function DailyTargetForm() {
           endCustomerName: endCustomerName,
           endCustomerPerson: selectedEndCustomer.contact_person || '',
           endCustomerContact: selectedEndCustomer.contact_number || '',
-          endCustomerCountryCode: '+91', // Default for Indian customers
+          endCustomerCountryCode: '+91',
           endCustomerAddress: selectedEndCustomer.address || ''
         }))
       } else {
@@ -376,11 +715,6 @@ function DailyTargetForm() {
         return false
     }
   }
-
-  const endpoint = useMemo(
-    () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/daily-target') ?? 'http://localhost:5000/api/daily-target',
-    []
-  )
 
   // Fetch leave types and balances when component mounts or user changes
   useEffect(() => {
@@ -442,22 +776,139 @@ function DailyTargetForm() {
 
   // Load auto-saved data on component mount
   useEffect(() => {
-    const loadAutoSavedData = () => {
-      const saved = localStorage.getItem(`daily-report-auto-save-${user?.id}`)
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved)
-          // Only load if it's from today
-          if (parsed.date === new Date().toISOString().slice(0, 10)) {
-            setSavedData(parsed)
-            setLastSaved(parsed.timestamp)
-          }
-        } catch (error) {
-          console.error('Failed to parse auto-saved data:', error)
-        }
+   const loadAutoSavedData = () => {
+  if (!user?.id) {
+    setAlert({ type: 'warning', message: 'User not found' });
+    return;
+  }
+
+  let saved = null;
+  
+  // Try to load from localStorage first (for auto-saved data)
+  const localSaved = localStorage.getItem(`daily-report-auto-save-${user.id}`);
+  if (localSaved) {
+    try {
+      saved = JSON.parse(localSaved);
+      console.log('📂 Loaded from localStorage:', saved);
+    } catch (error) {
+      console.error('Failed to parse localStorage data:', error);
+    }
+  }
+  
+  // If no localStorage data, try sessionStorage
+  if (!saved) {
+    const sessionSaved = sessionStorage.getItem(`daily-report-session-${user.id}`);
+    if (sessionSaved) {
+      try {
+        saved = JSON.parse(sessionSaved);
+        console.log('📂 Loaded from sessionStorage:', saved);
+      } catch (error) {
+        console.error('Failed to parse sessionStorage data:', error);
       }
     }
-
+  }
+  
+  if (saved) {
+    // Check if the saved data is for today
+    const today = new Date().toISOString().slice(0, 10);
+    const savedDate = saved.date || saved.reportDate || today;
+    
+    if (savedDate === today) {
+      // Update savedData state
+      setSavedData({
+        ...saved,
+        timestamp: saved.timestamp || new Date().toISOString()
+      });
+      setLastSaved(saved.timestamp || new Date().toISOString());
+      
+      // Load the data into the form
+      setFormData(prev => ({
+        ...prev,
+        reportDate: saved.reportDate || prev.reportDate,
+        customerName: saved.customerName || prev.customerName,
+        customerPerson: saved.customerPerson || prev.customerPerson,
+        customerContact: saved.customerContact || prev.customerContact,
+        customerCountryCode: saved.customerCountryCode || prev.customerCountryCode,
+        customerAddress: saved.customerAddress || prev.customerAddress,
+        endCustomerName: saved.endCustomerName || prev.endCustomerName,
+        endCustomerPerson: saved.endCustomerPerson || prev.endCustomerPerson,
+        endCustomerContact: saved.endCustomerContact || prev.endCustomerContact,
+        endCustomerCountryCode: saved.endCustomerCountryCode || prev.endCustomerCountryCode,
+        endCustomerAddress: saved.endCustomerAddress || prev.endCustomerAddress,
+        projectNo: saved.projectNo || prev.projectNo,
+        locationType: saved.locationType || prev.locationType,
+        leaveType: saved.leaveType || prev.leaveType,
+        siteLocation: saved.siteLocation || prev.siteLocation,
+        locationLat: saved.locationLat || prev.locationLat,
+        locationLng: saved.locationLng || prev.locationLng,
+        dailyTargetPlanned: saved.dailyTargetPlanned || prev.dailyTargetPlanned,
+        dailyTargetAchieved: saved.dailyTargetAchieved || prev.dailyTargetAchieved,
+        additionalActivity: saved.additionalActivity || prev.additionalActivity,
+        additionalActivityDetails: saved.additionalActivityDetails || prev.additionalActivityDetails,
+        whoAddedActivity: saved.whoAddedActivity || prev.whoAddedActivity,
+        dailyPendingTarget: saved.dailyPendingTarget || prev.dailyPendingTarget,
+        pendingTargetDetails: saved.pendingTargetDetails || prev.pendingTargetDetails,
+        reasonPendingTarget: saved.reasonPendingTarget || prev.reasonPendingTarget,
+        problemFaced: saved.problemFaced || prev.problemFaced,
+        problemDetails: saved.problemDetails || prev.problemDetails,
+        problemResolved: saved.problemResolved || prev.problemResolved,
+        problemResolutionDetails: saved.problemResolutionDetails || prev.problemResolutionDetails,
+        onlineSupportRequired: saved.onlineSupportRequired || prev.onlineSupportRequired,
+        supportEngineerName: saved.supportEngineerName || prev.supportEngineerName,
+        siteStartDate: saved.siteStartDate || prev.siteStartDate,
+        siteEndDate: saved.siteEndDate || prev.siteEndDate,
+        incharge: saved.incharge || prev.incharge,
+        remark: saved.remark || prev.remark,
+        inTime: saved.inTime || prev.inTime,
+        outTime: saved.outTime || prev.outTime
+      }));
+      
+      // Handle location data if it exists
+      if (saved.locationType === 'site' && saved.locationLat && saved.locationLng) {
+        setLocationAccess(true);
+        // Reverse geocode the location
+        const lat = parseFloat(saved.locationLat);
+        const lng = parseFloat(saved.locationLng);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          reverseGeocode(lat, lng).then((address) => {
+            if (address && address !== `${lat.toFixed(6)}, ${lng.toFixed(6)}`) {
+              setFormData(prev => ({
+                ...prev,
+                siteLocation: address,
+              }));
+            }
+          });
+        }
+      }
+      
+      // Handle leave type if it exists
+      if (saved.locationType === 'leave' && saved.leaveType) {
+        const typeDetails = leaveTypes.find(lt => lt.id === saved.leaveType);
+        setSelectedLeaveType(typeDetails);
+      }
+      
+      setIsDirty(false);
+      setAlert({
+        type: 'success',
+        message: `Auto-saved data loaded (${new Date(saved.timestamp).toLocaleTimeString()})`
+      });
+      
+      // Clear alert after 3 seconds
+      setTimeout(() => setAlert(null), 3000);
+      
+    } else {
+      setAlert({ 
+        type: 'warning', 
+        message: `Auto-saved data is from ${savedDate}. Only today's data (${today}) can be loaded.` 
+      });
+    }
+  } else {
+    setAlert({ 
+      type: 'info', 
+      message: 'No auto-saved data found for today.' 
+    });
+  }
+};
     if (user?.id) {
       loadAutoSavedData()
     }
@@ -469,7 +920,7 @@ function DailyTargetForm() {
 
     const autoSaveTimer = setTimeout(() => {
       performAutoSave()
-    }, 5000) // Auto-save after 5 seconds of inactivity
+    }, 5000)
 
     return () => clearTimeout(autoSaveTimer)
   }, [formData, autoSaveEnabled, isDirty])
@@ -593,7 +1044,6 @@ function DailyTargetForm() {
       if (response.ok) {
         const data = await response.json()
         
-        // If we're editing and the existing report is the one we're editing, it's okay
         if (excludeId && data.id && parseInt(data.id) === parseInt(excludeId)) {
           return null
         }
@@ -609,14 +1059,13 @@ function DailyTargetForm() {
     }
   }
 
-  // Check if leave date is valid (not a weekend and not already taken as leave)
+  // Check if leave date is valid
   const validateLeaveDate = async (date) => {
     if (!date) return { valid: true }
     
     const leaveDate = new Date(date)
     const dayOfWeek = leaveDate.getDay()
     
-    // Check if it's a weekend (Saturday=6, Sunday=0)
     if (dayOfWeek === 0 || dayOfWeek === 6) {
       return { 
         valid: false, 
@@ -624,7 +1073,6 @@ function DailyTargetForm() {
       }
     }
     
-    // Check if leave already exists for this date (only for non-edit mode)
     if (!isEditMode && user && token) {
       try {
         const response = await fetch(`${endpoint}/check-leave?date=${date}`, {
@@ -885,6 +1333,87 @@ function DailyTargetForm() {
     )
   }
 
+  // Auto-save functions
+  const performAutoSave = () => {
+    if (!user?.id || !isDirty) return;
+
+    try {
+      const saveData = {
+        ...formData,
+        date: formData.reportDate,
+        timestamp: new Date().toISOString(),
+        userId: user.id,
+        formType: 'daily-report'
+      };
+
+    // Save to both localStorage and sessionStorage
+      localStorage.setItem(`daily-report-auto-save-${user.id}`, JSON.stringify(saveData));
+      sessionStorage.setItem(`daily-report-session-${user.id}`, JSON.stringify(saveData));
+      
+      setSavedData(saveData);
+      setLastSaved(new Date().toISOString());
+      setIsDirty(false);
+      
+      // Show auto-save notification
+      setAlert({
+        type: 'info',
+        message: 'Progress auto-saved',
+        autoClear: true
+      });
+      
+      setTimeout(() => setAlert(null), 3000);
+
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+    }
+  };
+
+  // Load from both sources on mount
+  useEffect(() => {
+    const loadSavedData = () => {
+      let saved = null;
+      
+      // Try session storage first (for current session)
+      const sessionSaved = sessionStorage.getItem(`daily-report-session-${user?.id}`);
+      if (sessionSaved) {
+        try {
+          saved = JSON.parse(sessionSaved);
+        } catch (error) {
+          console.error('Failed to parse session data:', error);
+        }
+      }
+      
+      // Fallback to localStorage
+      if (!saved) {
+        const localSaved = localStorage.getItem(`daily-report-auto-save-${user?.id}`);
+        if (localSaved) {
+          try {
+            saved = JSON.parse(localSaved);
+          } catch (error) {
+            console.error('Failed to parse local data:', error);
+          }
+        }
+      }
+      
+      if (saved) {
+        // Only load if it's from today or same date
+        if (!saved.date || saved.date === new Date().toISOString().slice(0, 10)) {
+          setSavedData(saved);
+          setLastSaved(saved.timestamp);
+          
+          // Optional: Auto-load if user wants
+          if (window.confirm('Found saved data from today. Load it?')) {
+            loadAutoSavedData();
+          }
+        }
+      }
+    };
+
+    if (user?.id) {
+      loadSavedData();
+    }
+  }, [user]);
+
   const handleChange = (event) => {
     const { name, value, type, files } = event.target
 
@@ -996,40 +1525,6 @@ function DailyTargetForm() {
 
     // For all other fields
     setFormData((prev) => ({ ...prev, [name]: value }))
-  }
-
-  // Auto-save functions
-  const performAutoSave = () => {
-    if (!user?.id || !isDirty) return
-
-    try {
-      const saveData = {
-        ...formData,
-        date: formData.reportDate,
-        timestamp: new Date().toISOString(),
-        userId: user.id
-      }
-
-      localStorage.setItem(`daily-report-auto-save-${user.id}`, JSON.stringify(saveData))
-      setSavedData(saveData)
-      setLastSaved(new Date().toISOString())
-      setIsDirty(false)
-      
-      // Show auto-save notification
-      setAlert({
-        type: 'info',
-        message: 'Progress auto-saved',
-        autoClear: true
-      })
-      
-      // Auto-clear notification after 3 seconds
-      setTimeout(() => {
-        setAlert(null)
-      }, 3000)
-
-    } catch (error) {
-      console.error('Auto-save failed:', error)
-    }
   }
 
   const handleManualSave = () => {
@@ -1491,6 +1986,8 @@ function DailyTargetForm() {
       setLeaveAvailability(null)
       setSavedData(null)
       setLastSaved(null)
+      setHourlyAchievements([])
+      setShowHourlyAchievements(false)
 
       // Reset file input
       setTimeout(() => {
@@ -2225,6 +2722,144 @@ function DailyTargetForm() {
                     Describe what you actually achieved today
                   </small>
                 </label>
+
+                {/* ========== HOURLY ACHIEVEMENTS SECTION ========== */}
+                {formData.locationType !== 'leave' && (
+                  <div className="vh-span-2" style={{
+                    padding: '1rem',
+                    background: '#f0f9ff',
+                    border: '1px solid #2ad1ff',
+                    borderRadius: '8px',
+                    marginBottom: '1rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                      <h4 style={{ margin: 0, color: '#092544' }}>Hourly Achievements</h4>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          <input
+                            type="checkbox"
+                            id="autoMergeToggle"
+                            checked={autoMergeHourly}
+                            onChange={(e) => setAutoMergeHourly(e.target.checked)}
+                            style={{ margin: 0 }}
+                          />
+                          <label htmlFor="autoMergeToggle" style={{ margin: 0, fontSize: '0.85rem' }}>
+                            Auto-merge
+                          </label>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={fetchHourlyAchievements}
+                          disabled={loadingHourlyData || !formData.reportDate}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            background: loadingHourlyData ? '#8892aa' : '#2ad1ff',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: loadingHourlyData ? 'not-allowed' : 'pointer',
+                            fontSize: '0.85rem',
+                            opacity: loadingHourlyData ? 0.7 : 1
+                          }}
+                        >
+                          {loadingHourlyData ? 'Loading...' : 'Fetch Hourly Data'}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {loadingHourlyData ? (
+                      <div style={{ textAlign: 'center', padding: '1rem', color: '#6c757d' }}>
+                        Loading hourly achievements...
+                      </div>
+                    ) : hourlyAchievements.length > 0 ? (
+                      <>
+                        <div style={{ 
+                          background: 'white', 
+                          borderRadius: '6px', 
+                          border: '1px solid #e9ecef',
+                          maxHeight: '200px',
+                          overflowY: 'auto',
+                          marginBottom: '1rem'
+                        }}>
+                          {hourlyAchievements.map((item, index) => (
+                            <div 
+                              key={item.id}
+                              style={{
+                                padding: '0.75rem',
+                                borderBottom: index < hourlyAchievements.length - 1 ? '1px solid #e9ecef' : 'none',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                background: index % 2 === 0 ? '#f8f9fa' : 'white'
+                              }}
+                            >
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                  <strong style={{ color: '#092544' }}>{item.timePeriod}</strong>
+                                  <span style={{ 
+                                    fontSize: '0.75rem', 
+                                    background: '#e9ecef', 
+                                    padding: '0.125rem 0.5rem', 
+                                    borderRadius: '12px' 
+                                  }}>
+                                    {item.project}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.9rem', color: '#495057' }}>
+                                  {item.achievement}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => addAchievementToDailyTarget(item.achievement)}
+                                style={{
+                                  padding: '0.25rem 0.5rem',
+                                  background: 'transparent',
+                                  color: '#2ad1ff',
+                                  border: '1px solid #2ad1ff',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  fontSize: '0.8rem',
+                                  marginLeft: '0.5rem'
+                                }}
+                              >
+                                Add
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ fontSize: '0.85rem', color: '#6c757d' }}>
+                            Found {hourlyAchievements.length} hourly achievement(s) for {formData.reportDate}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={addAllAchievementsToDailyTarget}
+                            style={{
+                              padding: '0.5rem 1rem',
+                              background: '#06c167',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontSize: '0.85rem'
+                            }}
+                          >
+                            Add All to Daily Target
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ textAlign: 'center', padding: '1rem', color: '#6c757d' }}>
+                        No hourly achievements found for {formData.reportDate || 'selected date'}
+                        <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                          Click "Fetch Hourly Data" to load achievements from hourly reports
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <label>
@@ -2693,6 +3328,8 @@ function DailyTargetForm() {
                 setSelectedLeaveType(null)
                 setLeaveAvailability(null)
                 setIsDirty(false)
+                setHourlyAchievements([])
+                setShowHourlyAchievements(false)
               }}
               style={{
                 padding: '0.75rem 1.5rem',
@@ -2723,6 +3360,8 @@ function DailyTargetForm() {
               setIsDirty(false)
               setSavedData(null)
               setLastSaved(null)
+              setHourlyAchievements([])
+              setShowHourlyAchievements(false)
               const fileInput = document.querySelector('input[name="momReport"]')
               if (fileInput) {
                 fileInput.value = ''

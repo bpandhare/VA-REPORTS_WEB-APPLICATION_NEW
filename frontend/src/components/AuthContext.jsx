@@ -12,65 +12,65 @@ export function AuthProvider({ children }) {
   const [error, setError] = useState(null)
 
   // Function to fetch user profile using token
-  const fetchUserProfile = async (token) => {
+ const fetchUserProfile = async (token) => {
+  try {
+    console.log('🔍 Fetching user profile with token:', token ? 'Token exists' : 'No token')
+    
+    let response
     try {
-      console.log('🔍 Fetching user profile with token:', token ? 'Token exists' : 'No token')
-      
-      let response
-      try {
-        response = await axios.get(`${API_URL}/users/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        })
-        console.log('📋 User profile API response (/users/me):', response.data)
-      } catch (meError) {
-        // If /users/me fails, try /auth/profile as fallback
-        console.log('⚠️ /users/me failed, trying /auth/profile:', meError.message)
-        response = await axios.get(`${API_URL}/auth/profile`, {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        })
-        console.log('📋 User profile API response (/auth/profile):', response.data)
-      }
-      
-      // Handle both response formats
-      const userData = response.data.user || response.data
-      
-      if (userData) {
-        return {
-          id: userData.id,
-          name: userData.name || userData.username || userData.fullName,
-          username: userData.username,
-          role: userData.role,
-          employeeId: userData.employeeId || userData.employee_id,
-          phone: userData.phone,
-          dob: userData.dob,
-          fullName: userData.fullName || userData.name || userData.username,
-          email: userData.email || null
+      response = await axios.get(`${API_URL}/users/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`
         }
-      }
-      
-      console.warn('⚠️ No user data in response:', response.data)
-      return null
-      
-    } catch (error) {
-      console.error('❌ Failed to fetch user profile:', error)
-      console.error('❌ Error response:', error.response?.data)
-      console.error('❌ Error status:', error.response?.status)
-      
-      if (error.response?.status === 401) {
-        console.warn('⚠️ Token expired or invalid')
-        // Clear invalid token
-        localStorage.removeItem('vh-auth')
-        setToken(null)
-        setUser(null)
-      }
-      
-      return null
+      })
+      console.log('📋 User profile API response (/users/me):', response.data)
+    } catch (meError) {
+      // If /users/me fails, try /auth/profile as fallback
+      console.log('⚠️ /users/me failed, trying /auth/profile:', meError.message)
+      response = await axios.get(`${API_URL}/auth/profile`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      })
+      console.log('📋 User profile API response (/auth/profile):', response.data)
     }
+    
+    // Handle both response formats
+    const userData = response.data.user || response.data
+    
+    if (userData) {
+      return {
+        id: userData.id,
+        name: userData.name || userData.username || userData.fullName,
+        username: userData.username,
+        role: userData.role,
+        employeeId: userData.employeeId || userData.employee_id,
+        phone: userData.phone,
+        dob: userData.dob,
+        fullName: userData.fullName || userData.name || userData.username,
+        email: userData.email || null // Handle missing email
+      }
+    }
+    
+    console.warn('⚠️ No user data in response:', response.data)
+    return null
+    
+  } catch (error) {
+    console.error('❌ Failed to fetch user profile:', error)
+    console.error('❌ Error response:', error.response?.data)
+    console.error('❌ Error status:', error.response?.status)
+    
+    if (error.response?.status === 401) {
+      console.warn('⚠️ Token expired or invalid')
+      // Clear invalid token
+      localStorage.removeItem('vh-auth')
+      setToken(null)
+      setUser(null)
+    }
+    
+    return null
   }
+}
 
   // Load auth from localStorage and fetch fresh user data
   useEffect(() => {
@@ -311,7 +311,7 @@ export function AuthProvider({ children }) {
     isEngineer,
     getDisplayName,
     getRoleDisplay,
-    setError
+    setError // Allow components to clear errors
   }
 
   return (

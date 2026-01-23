@@ -69,6 +69,7 @@ const ensureColumnExists = async (connection, columnName, columnDefinition) => {
 // ========== PROJECT ROUTES ==========
 
 // Create a new project - MANAGER ONLY
+// Create a new project - MANAGER ONLY
 router.post('/', verifyToken, isManager, async (req, res) => {
   const connection = await pool.getConnection()
   try {
@@ -79,21 +80,21 @@ router.post('/', verifyToken, isManager, async (req, res) => {
       customer, 
       end_customer,
       description, 
-    
+      priority = 'medium',
       start_date, 
       end_date,
       collaborator_ids = [],
       assigned_employee,
       // Customer contact fields
       customer_person,
-   
+      customer_email,
       customer_contact,
-   
+      customer_address,
       // End customer contact fields
       end_customer_person,
-    
+      end_customer_email,
       end_customer_contact,
-     
+      end_customer_address,
       // Additional fields
       budget,
       requires_reporting = true,
@@ -108,26 +109,29 @@ router.post('/', verifyToken, isManager, async (req, res) => {
     // Ensure all required columns exist
     await ensureColumnExists(connection, 'customer', 'VARCHAR(255) DEFAULT NULL')
     await ensureColumnExists(connection, 'end_customer', 'VARCHAR(255) DEFAULT NULL')
-    // await ensureColumnExists(connection, 'priority', "VARCHAR(50) DEFAULT 'medium'")
+    await ensureColumnExists(connection, 'priority', "VARCHAR(50) DEFAULT 'medium'")
     await ensureColumnExists(connection, 'start_date', 'DATE DEFAULT NULL')
     await ensureColumnExists(connection, 'end_date', 'DATE DEFAULT NULL')
-    // await ensureColumnExists(connection, 'status', "VARCHAR(20) DEFAULT 'active'")
+    await ensureColumnExists(connection, 'status', "VARCHAR(20) DEFAULT 'active'")
     await ensureColumnExists(connection, 'assigned_to', 'INT DEFAULT NULL')
     await ensureColumnExists(connection, 'assigned_employee_id', 'VARCHAR(50) DEFAULT NULL')
     
     // Customer contact columns
     await ensureColumnExists(connection, 'customer_person', 'VARCHAR(255) DEFAULT NULL')
-    // await ensureColumnExists(connection, 'customer_email', 'VARCHAR(255) DEFAULT NULL')
+    await ensureColumnExists(connection, 'customer_email', 'VARCHAR(255) DEFAULT NULL')
     await ensureColumnExists(connection, 'customer_contact', 'VARCHAR(50) DEFAULT NULL')
-    // await ensureColumnExists(connection, 'customer_address', 'TEXT DEFAULT NULL')
+    await ensureColumnExists(connection, 'customer_address', 'TEXT DEFAULT NULL')
     
     // End customer contact columns
     await ensureColumnExists(connection, 'end_customer_person', 'VARCHAR(255) DEFAULT NULL')
-    // await ensureColumnExists(connection, 'end_customer_email', 'VARCHAR(255) DEFAULT NULL')
+    await ensureColumnExists(connection, 'end_customer_email', 'VARCHAR(255) DEFAULT NULL')
     await ensureColumnExists(connection, 'end_customer_contact', 'VARCHAR(50) DEFAULT NULL')
-    // await ensureColumnExists(connection, 'end_customer_address', 'TEXT DEFAULT NULL')
+    await ensureColumnExists(connection, 'end_customer_address', 'TEXT DEFAULT NULL')
     
-   
+    // Additional columns
+    await ensureColumnExists(connection, 'budget', 'DECIMAL(15,2) DEFAULT NULL')
+    await ensureColumnExists(connection, 'requires_reporting', 'BOOLEAN DEFAULT TRUE')
+    
     // Look up employee if assigned_employee is provided
     let assignedUserId = null
     let assignedEmployeeId = null
@@ -146,64 +150,74 @@ router.post('/', verifyToken, isManager, async (req, res) => {
       }
     }
     
-    // Create project WITH ALL fields
+    // ✅ FIXED: Create project WITH CORRECT SQL SYNTAX
     const [result] = await connection.execute(
       `INSERT INTO projects 
-       (name, customer, end_customer, description,  start_date, end_date, 
+       (name, customer, end_customer, description, priority, start_date, end_date, 
         created_by, assigned_to, assigned_employee_id,
-        customer_person,, customer_contact,
-        end_customer_person,  end_customer_contact, 
-        , requires_reporting) 
+        customer_person, customer_email, customer_contact, customer_address,
+        end_customer_person, end_customer_email, end_customer_contact, end_customer_address, 
+        budget, requires_reporting, status) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         name, 
         customer, 
         end_customer || null,
         description || '', 
-        // priority, 
+        priority || 'medium',
         start_date || null, 
         end_date || null, 
-        // status,
         createdBy,
         assignedUserId || null,
         assignedEmployeeId || null,
         // Customer contact fields
         customer_person || null,
-        // customer_email || null,
+        customer_email || null,
         customer_contact || null,
-        // customer_address || null,
+        customer_address || null,
         // End customer contact fields
         end_customer_person || null,
-        // end_customer_email || null,
+        end_customer_email || null,
         end_customer_contact || null,
-        // end_customer_address || null,
+        end_customer_address || null,
         // Additional fields
         budget || null,
-        requires_reporting ? 1 : 0
+        requires_reporting ? 1 : 0,
+        status || 'active'
       ]
     )
     
     const projectId = result.insertId
     
-    // If an employee was assigned, also add them as a collaborator
+    console.log(`✅ Project created with ID: ${projectId}`)
+    console.log(`Assigned employee: ${assignedEmployeeId}, User ID: ${assignedUserId}`)
+    
+    // ✅ FIXED: Add collaborator AFTER projectId is defined
     if (assignedUserId || assignedEmployeeId) {
       try {
         await connection.execute(
           'INSERT INTO project_collaborators (project_id, user_id, collaborator_employee_id, role, added_by) VALUES (?, ?, ?, ?, ?)',
           [projectId, assignedUserId || null, assignedEmployeeId || null, 'Assigned', createdBy]
         )
+        console.log(`✅ Added assigned employee as collaborator for project ${projectId}`)
       } catch (collabError) {
         console.error('Failed to add assigned employee as collaborator:', collabError)
       }
     }
     
     // Add other collaborators if any
-    for (const collaboratorId of collaborator_ids) {
-      if (collaboratorId) {
-        await connection.execute(
-          'INSERT INTO project_collaborators (project_id, user_id, role) VALUES (?, ?, ?)',
-          [projectId, collaboratorId, 'Contributor']
-        )
+    if (collaborator_ids && Array.isArray(collaborator_ids)) {
+      for (const collaboratorId of collaborator_ids) {
+        if (collaboratorId) {
+          try {
+            await connection.execute(
+              'INSERT INTO project_collaborators (project_id, user_id, role) VALUES (?, ?, ?)',
+              [projectId, collaboratorId, 'Contributor']
+            )
+          } catch (error) {
+            console.error('Failed to add collaborator:', error)
+          }
+        }
       }
     }
     
@@ -220,32 +234,21 @@ router.post('/', verifyToken, isManager, async (req, res) => {
       message: 'Project created successfully',
       project: createdProjects[0] || { id: projectId, name, customer, end_customer }
     })
+    
   } catch (error) {
     await connection.rollback()
-    console.error('Failed to create project:', error)
+    console.error('❌ Failed to create project:', error)
     
     let errorMessage = 'Unable to create project'
     if (error.code === 'ER_BAD_FIELD_ERROR') {
-      // Include new columns in error message
-      if (error.sqlMessage?.includes('customer_person') || error.sqlMessage?.includes('customer_contact')) {
-        errorMessage = 'Database error: Contact columns missing. Please run these SQL commands:\n' +
-                      'ALTER TABLE projects ADD COLUMN customer_person VARCHAR(255) DEFAULT NULL;\n' +
-                      // 'ALTER TABLE projects ADD COLUMN customer_email VARCHAR(255) DEFAULT NULL;\n' +
-                      'ALTER TABLE projects ADD COLUMN customer_contact VARCHAR(50) DEFAULT NULL;\n' +
-                      // 'ALTER TABLE projects ADD COLUMN customer_address TEXT DEFAULT NULL;\n' +
-                      'ALTER TABLE projects ADD COLUMN end_customer_person VARCHAR(255) DEFAULT NULL;\n' +
-                      // 'ALTER TABLE projects ADD COLUMN end_customer_email VARCHAR(255) DEFAULT NULL;\n' +
-                      'ALTER TABLE projects ADD COLUMN end_customer_contact VARCHAR(50) DEFAULT NULL;\n' +
-                      // 'ALTER TABLE projects ADD COLUMN end_customer_address TEXT DEFAULT NULL;\n' +
-                      // 'ALTER TABLE projects ADD COLUMN budget DECIMAL(15,2) DEFAULT NULL;\n' +
-                      'ALTER TABLE projects ADD COLUMN requires_reporting BOOLEAN DEFAULT TRUE;'
-      }
+      errorMessage = 'Database error: Missing columns. Please check your database schema.'
     }
     
     res.status(500).json({ 
       success: false, 
       message: errorMessage,
-      details: error.message 
+      details: error.message,
+      sqlError: error.sqlMessage 
     })
   } finally {
     connection.release()

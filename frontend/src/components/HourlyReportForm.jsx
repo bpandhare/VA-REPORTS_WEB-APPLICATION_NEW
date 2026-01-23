@@ -953,6 +953,60 @@ const fetchProjectDetails = async (projectId) => {
     }
   }
 
+  // Add this function to HourlyReportForm.js
+ const fetchDailyTargetFromLocalStorage = () => {
+    if (!user?.id) return '';
+    
+    try {
+      // Check local storage for saved daily target form
+      const savedData = localStorage.getItem(`daily-report-auto-save-${user.id}`);
+      if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        
+        // Only use if it's from today OR same date as hourly report
+        const targetDate = formData.reportDate || new Date().toISOString().slice(0, 10);
+        if (parsedData.date === targetDate) {
+          console.log('📋 Found daily target in localStorage:', parsedData.dailyTargetPlanned);
+          return parsedData.dailyTargetPlanned || '';
+        }
+      }
+      
+      // Also check session storage
+      const sessionData = sessionStorage.getItem(`daily-report-session-${user.id}`);
+      if (sessionData) {
+        const parsedData = JSON.parse(sessionData);
+        const targetDate = formData.reportDate || new Date().toISOString().slice(0, 10);
+        if (parsedData.date === targetDate) {
+          console.log('📋 Found daily target in sessionStorage:', parsedData.dailyTargetPlanned);
+          return parsedData.dailyTargetPlanned || '';
+        }
+      }
+      
+      return '';
+    } catch (error) {
+      console.error('Error fetching daily target from storage:', error);
+      return '';
+    }
+  };
+
+// Add this useEffect to auto-populate dailyTargetPlanned
+useEffect(() => {
+  const autoFillDailyTarget = () => {
+    // Only auto-fill if field is empty
+    if (!formData.dailyTargetPlanned) {
+      const dailyTarget = fetchDailyTargetFromLocalStorage();
+      if (dailyTarget) {
+        setFormData(prev => ({
+          ...prev,
+          dailyTargetPlanned: dailyTarget
+        }));
+        console.log('✅ Auto-filled daily target from saved form');
+      }
+    }
+  };
+  
+  autoFillDailyTarget();
+}, [user?.id]);
   // Format date for backend (ensure YYYY-MM-DD format)
   const formatDateForBackend = (dateValue) => {
     console.log('🔍 formatDateForBackend input:', dateValue)
@@ -987,6 +1041,36 @@ const fetchProjectDetails = async (projectId) => {
     }
   }
 
+    // ========== ADD THIS useEffect ==========
+  // Auto-fill daily target from saved daily form
+  useEffect(() => {
+    const autoFillDailyTarget = () => {
+      // Only auto-fill if field is empty and we have a date
+      if (!formData.dailyTargetPlanned && formData.reportDate && user?.id) {
+        const dailyTarget = fetchDailyTargetFromLocalStorage();
+        if (dailyTarget && dailyTarget.trim()) {
+          setFormData(prev => ({
+            ...prev,
+            dailyTargetPlanned: dailyTarget
+          }));
+          console.log('✅ Auto-filled daily target from saved form');
+          
+          // Show success message
+          setAlert({
+            type: 'success',
+            message: `Daily target loaded from your saved form for ${formData.reportDate}`
+          });
+          
+          // Auto-clear after 3 seconds
+          setTimeout(() => {
+            setAlert(prev => prev?.type === 'success' ? null : prev);
+          }, 3000);
+        }
+      }
+    };
+    
+    autoFillDailyTarget();
+  }, [formData.reportDate, user?.id]); // Run when date changes or user logs in
   // Function to get status badge style
   const getStatusBadgeStyle = (status) => {
     switch (status) {
@@ -1877,6 +1961,135 @@ useEffect(() => {
             </button>
           </div>
         )}
+        {/* Daily Target Information */}
+<div className="vh-grid">
+  <label className="vh-span-2">
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <span>Daily Target Planned</span>
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <button
+          type="button"
+          onClick={() => {
+            const dailyTarget = fetchDailyTargetFromLocalStorage();
+            if (dailyTarget) {
+              setFormData(prev => ({
+                ...prev,
+                dailyTargetPlanned: dailyTarget
+              }));
+              setAlert({
+                type: 'success',
+                message: 'Daily target loaded from saved form!'
+              });
+            } else {
+              setAlert({
+                type: 'warning',
+                message: 'No saved daily target found. Please fill the Daily Target Form first.'
+              });
+            }
+          }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: '#2ad1ff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
+          }}
+        >
+          <span>↻</span>
+          Load from Daily Form
+        </button>
+        
+        <button
+          type="button"
+          onClick={() => {
+            // Generate from activities
+            const allActivities = formData.hourlyEntries
+              .flatMap(entry => entry.hourlyActivityEntries || [])
+              .filter(activity => activity.trim())
+              .map((activity, idx) => `${idx + 1}) ${activity}`)
+              .join('\n');
+            
+            if (allActivities) {
+              setFormData(prev => ({
+                ...prev,
+                dailyTargetPlanned: `Today's Plan:\n${allActivities}`
+              }));
+              setAlert({
+                type: 'info',
+                message: 'Daily target generated from activities'
+              });
+            }
+          }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: '#06c167',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.25rem'
+          }}
+        >
+          <span>⚡</span>
+          Generate from Activities
+        </button>
+      </div>
+    </div>
+    
+    <textarea
+      rows={3}
+      name="dailyTargetPlanned"
+      value={formData.dailyTargetPlanned}
+      onChange={handleChange}
+      placeholder="Describe what you plan to achieve today... (Auto-fills from Daily Form)"
+    />
+    
+    {/* Help text */}
+    <small style={{ color: '#6c757d', marginTop: '0.25rem', display: 'block' }}>
+      {formData.dailyTargetPlanned ? 
+        '✓ Daily target loaded. You can edit it.' : 
+        'Click "Load from Daily Form" to get target from your Daily Target Form'}
+    </small>
+    
+    {/* Source indicator */}
+    {formData.dailyTargetPlanned && (
+      <small style={{ 
+        color: '#2ad1ff', 
+        marginTop: '0.25rem', 
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '0.25rem' 
+      }}>
+        <span>🔄</span>
+        <span>Auto-synced from Daily Target Form</span>
+      </small>
+    )}
+  </label>
+
+  <label className="vh-span-2">
+    <span>Daily Target Achieved (Auto-calculated)</span>
+    <textarea
+      rows={3}
+      name="dailyTargetAchieved"
+      value={totalAchieved}
+      onChange={handleChange}
+      placeholder="Will be auto-filled from your session achievements"
+      readOnly
+      style={{ background: '#f8f9fa' }}
+    />
+    <small style={{ color: '#06c167', marginTop: '0.25rem', display: 'block' }}>
+      ✓ Auto-calculated from your session achievements
+    </small>
+  </label>
+</div>
       </form>
     </section>
   )

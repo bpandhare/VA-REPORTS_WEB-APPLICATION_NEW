@@ -120,6 +120,23 @@ export default function ProjectList() {
     }
   }
 
+  const handleDeleteProject = async (project) => {
+  if (!window.confirm(`Are you sure you want to delete project "${project.name}"? This action cannot be undone.`)) return
+  
+  try {
+    const result = await deleteProject(project.id);
+    
+    if (result.data?.success) {
+      setProjects(prev => prev.filter(p => p.id !== project.id));
+      alert(`✅ Project "${project.name}" deleted successfully!`);
+    } else {
+      alert(`Failed to delete project: ${result.data?.message || 'Unknown error'}`);
+    }
+  } catch (error) {
+    console.error('Delete error:', error);
+    alert('Failed to delete project. Please try again.');
+  }
+};
   const isManager = userRole === 'Manager'
   const activeProjects = projects.filter(p => p.status !== 'completed')
   const completedProjects = projects.filter(p => p.status === 'completed')
@@ -181,79 +198,107 @@ export default function ProjectList() {
               </h2>
             </div>
             
-            {activeProjects.map(p => (
-              <div key={p.id} className="project-card">
-                <div className="project-header">
-                  <h3 className="project-title">{p.name}</h3>
-                  <div className="project-customer">
-                    Customer: {p.customer || p.customer_name || 'Not specified'}
-                  </div>
-                </div>
-                
-                <div className="project-description">
-                  {p.description || 'No description'}
-                </div>
-                
-                {!isManager && p.created_by !== userInfo?.id && (
-                  <div className="assigned-badge">Assigned to you</div>
-                )}
-                
-                <div className="project-footer">
-                  <div className="member-info">
-                    <span className="members-count">{p.collaborators_count || 0} members</span>
-                    <span className="project-status active">Active</span>
-                  </div>
-                  
-                  <div className="project-actions">
-                    <button 
-                      className="btn view-details"
-                      onClick={() => {setSelected({ project: p }); setShowCollaborators(true)}}
-                    >
-                      View Details
-                    </button>
-                    {(isManager || p.created_by === userInfo?.id) && (
-                      <button 
-                        className="btn mark-complete"
-                        onClick={() => handleMarkComplete(p)}
-                      >
-                        Mark Complete
-                      </button>
-                    )}
-                    {isManager && (
-                      <>
-                        <button className="btn edit" onClick={() => setEditing(p)}>
-                          Edit
-                        </button>
-                        <button 
-                          className="btn delete" 
-                          onClick={async () => {
-                            if (!confirm('Delete project "' + p.name + '"? This cannot be undone.')) return
-                            try {
-                              const result = await deleteProject(p.id);
-                              if (result.data?.success) {
-                                setProjects(prev => prev.filter(project => project.id !== p.id));
-                                if (result.data.message?.includes('MOCK')) {
-                                  alert(`✅ Project "${p.name}" deleted! (Using local data - Backend is offline)`);
-                                } else {
-                                  alert(`✅ Project "${p.name}" deleted successfully!`);
-                                }
-                              } else {
-                                alert('Failed to delete project: ' + (result.data?.message || 'Unknown error'));
-                              }
-                            } catch (e) { 
-                              console.error('Delete error:', e);
-                              alert('Failed to delete project. Please try again.');
-                            }
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+   
+{activeProjects.map(p => (
+  <div key={p.id} className="project-card">
+    <div className="project-header">
+      <h3 className="project-title">{p.name}</h3>
+      <div className="project-customer">
+        Customer: {p.customer || p.customer_name || 'Not specified'}
+      </div>
+    </div>
+    
+    <div className="project-description">
+      {p.description || 'No description'}
+    </div>
+    
+    {/* Show assigned employees info - UPDATED FOR MULTIPLE */}
+    {p.assigned_employees && p.assigned_employees.length > 0 && (
+      <div className="assigned-employees-info">
+        <div className="assigned-employees-header">
+          👤 Assigned Employees ({p.assigned_employees.length})
+        </div>
+        <div className="assigned-employees-list">
+          {p.assigned_employees.map((employee, index) => (
+            <span key={index} className="employee-tag">
+              {employee.username || employee.name || employee.employee_id}
+              {employee.employee_code && (
+                <span className="employee-id"> (ID: {employee.employee_code})</span>
+              )}
+            </span>
+          ))}
+        </div>
+      </div>
+    )}
+      
+    {/* Backward compatibility for single employee */}
+    {(!p.assigned_employees || p.assigned_employees.length === 0) && 
+     (p.assigned_employee || p.assigned_employee_id) && (
+      <div className="assigned-employee-info">
+        <div className="employee-badge">
+          👤 Assigned to: {p.assigned_username || p.assigned_employee || p.assigned_employee_id}
+          {p.assigned_employee_code && (
+            <span className="employee-id"> (ID: {p.assigned_employee_code})</span>
+          )}
+        </div>
+      </div>
+    )}
+    {/* Show collaborator count */}
+    <div className="collaborator-count">
+      <span className="members-count">{p.collaborators_count || 0} members</span>
+    </div>
+    
+    {!isManager && p.created_by !== userInfo?.id && (
+      <div className="assigned-badge">Assigned to you</div>
+    )}
+    
+    <div className="project-footer">
+      <div className="member-info">
+        <span className="members-count">{p.collaborators_count || 0} members</span>
+        <span className="project-status active">Active</span>
+      </div>
+      
+      <div className="project-actions">
+        <button 
+          className="btn view-details"
+          onClick={() => {setSelected({ project: p }); setShowCollaborators(true)}}
+        >
+          View Details
+        </button>
+        
+        {/* Show "Mark as Complete" button for managers or project creator */}
+        {(isManager || p.created_by === userInfo?.id) && (
+          <button 
+            className="btn mark-complete"
+            onClick={() => handleMarkComplete(p)}
+          >
+            Mark as Complete
+          </button>
+        )}
+        
+        {/* Show "Edit" button for managers or project creator */}
+        {(isManager || p.created_by === userInfo?.id) && (
+          <button 
+            className="btn edit"
+            onClick={() => setEditing(p)}
+          >
+            Edit
+          </button>
+        )}
+        
+        {/* Show "Delete" button only for managers */}
+        {isManager && (
+          <button 
+            className="btn delete"
+            onClick={() => handleDeleteProject(p)}
+          >
+            Delete
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+))}
           </div>
         )}
 
@@ -480,7 +525,7 @@ export default function ProjectList() {
                       </span>
                     </div>
                     <div className="info-item">
-                      <span className="info-label">Collaborators:</span>
+                      <span className="info-label">Assigned Employee</span>
                       <span className="info-value">{selected.project.collaborators_count || 0}</span>
                     </div>
                   </div>

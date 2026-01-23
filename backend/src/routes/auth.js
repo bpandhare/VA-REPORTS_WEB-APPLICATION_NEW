@@ -1375,8 +1375,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-
-
 // Health check endpoint
 router.get('/health', (req, res) => {
   res.json({ 
@@ -1398,6 +1396,5 @@ router.get('/health', (req, res) => {
     ]
   })
 })
-
 
 export default router

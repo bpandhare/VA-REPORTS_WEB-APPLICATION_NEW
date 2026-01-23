@@ -247,7 +247,7 @@ function Sidebar() {
           <div className="section-title">DOCUMENTS</div>
           <div className="nav-buttons">
             {/* Only managers can create MOM */}
-            {isManager && (
+            {(
               <button 
                 className={`nav-btn ${activePage === 'create-mom' ? 'active' : ''}`} 
                 onClick={() => handleNavigation('create-mom')}
