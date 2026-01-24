@@ -448,15 +448,70 @@ const ManagerProjectDashboard = () => {
     }
   }
 
-  const handleUpdateProject = async (e) => {
-    e.preventDefault()
-    try {
-      // ... (keep existing update project logic)
-    } catch (error) {
-      console.error('Failed to update project:', error)
-      alert('Failed to update project. Please try again.')
+ // In ManagerProjectDashboard.js - Update handleUpdateProject function
+const handleUpdateProject = async (e) => {
+  e.preventDefault()
+  try {
+    // Prepare project data
+    const projectData = {
+      name: newProject.name,
+      customer: newProject.customer,
+      description: newProject.description,
+      status: newProject.status,
+      priority: newProject.priority,
+      startDate: newProject.startDate,
+      endDate: newProject.endDate,
+      budget: newProject.budget,
+      requiresReporting: newProject.requiresReporting
     }
+
+    // Update project details
+    const res = await updateProject(editingProject.id, projectData)
+    
+    if (res.data?.success) {
+      // AFTER updating project, also handle employee assignments
+      if (selectedEmployees.length > 0) {
+        try {
+          const assignmentData = {
+            project_id: editingProject.id,
+            employee_ids: selectedEmployees,
+            start_date: new Date().toISOString().split('T')[0],
+            end_date: newProject.endDate || null,
+            reporting_required: true,
+            // IMPORTANT: Add flag to preserve existing assignments
+            keep_existing_assignments: true
+          }
+
+          await assignProjectToEmployees(assignmentData)
+        } catch (assignError) {
+          console.error('Failed to assign employees:', assignError)
+          // Continue even if assignment fails - project is still updated
+        }
+      }
+      
+      alert('✅ Project updated successfully!')
+      setShowCreateModal(false)
+      setEditingProject(null)
+      setNewProject({
+        name: '',
+        customer: '',
+        description: '',
+        status: 'active',
+        priority: 'medium',
+        startDate: '',
+        endDate: '',
+        budget: '',
+        requiresReporting: true
+      })
+      setSelectedEmployees([]) // Clear selections
+      await fetchProjects()
+      await fetchAllEmployees() // Refresh employee list
+    }
+  } catch (error) {
+    console.error('Failed to update project:', error)
+    alert('Failed to update project. Please try again.')
   }
+}
 
   const handleDeleteProject = async (projectId) => {
     if (!window.confirm('Are you sure you want to delete this project? This will also delete all associated tasks and reports.')) return

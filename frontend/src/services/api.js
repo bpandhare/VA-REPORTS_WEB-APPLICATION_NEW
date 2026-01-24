@@ -603,6 +603,46 @@ const mockApi = {
 
 // ========== REAL API FUNCTIONS ==========
 
+// Add these to your existing api.js file
+
+// Get projects assigned to a specific employee
+export const getEmployeeProjects = async (employeeId) => {
+  try {
+    const response = await axios.get(`/api/employees/${employeeId}/projects`, {
+      headers: getAuthHeaders()
+    });
+    return response;
+  } catch (error) {
+    console.error('Error fetching employee projects:', error);
+    throw error;
+  }
+};
+
+// Add employees to project (preserve existing)
+export const addEmployeesToProject = async (data) => {
+  try {
+    const response = await axios.post('/api/projects/assign/add', data, {
+      headers: getAuthHeaders()
+    });
+    return response;
+  } catch (error) {
+    console.error('Error adding employees to project:', error);
+    throw error;
+  }
+};
+
+// Get project assignments
+export const getProjectAssignments = async (projectId) => {
+  try {
+    const response = await axios.get(`/api/projects/${projectId}/assignments`, {
+      headers: getAuthHeaders()
+    });
+    return response;
+  } catch (error) {
+    console.error('Error fetching project assignments:', error);
+    throw error;
+  }
+};
 // Enhanced API helpers with automatic fallback to mock
 export const createProject = async (projectData) => {
   console.log("📤 Sending to /api/projects:", projectData);
