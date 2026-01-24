@@ -3441,3 +3441,547 @@ tbody tr:hover {
 .btn-close:hover {
   background: #e9ecef;
 }
+.daily-report-indicator {
+  font-size: 0.8em;
+  opacity: 0.8;
+  margin-left: 5px;
+}
+
+/* Add these styles to your ManagerDashboard.css */
+
+.activities-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.activities-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.stats-badges {
+  display: flex;
+  gap: 1rem;
+}
+
+.stat-badge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.activities-filters {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.filter-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.btn-refresh {
+  padding: 0.5rem 1rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-refresh:hover {
+  background: #5a67d8;
+}
+
+.activity-employee {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.activity-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.employee-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.activity-id {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.activity-time {
+  font-size: 0.75rem;
+  color: #999;
+}
+
+.time-cell {
+  font-weight: 500;
+  color: #333;
+}
+
+.project-cell {
+  display: flex;
+  flex-direction: column;
+}
+
+.project-no {
+  font-size: 0.8rem;
+  color: #666;
+  margin-top: 0.25rem;
+}
+
+.description-content {
+  line-height: 1.4;
+  color: #444;
+}
+
+.activity-remark {
+  margin-top: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+  border-left: 3px solid #667eea;
+}
+
+.problem-content {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.no-problem {
+  color: #999;
+  font-style: italic;
+}
+
+.resolved-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.resolved-badge.resolved {
+  background: #d4edda;
+  color: #155724;
+}
+
+.resolved-badge.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.activities-summary {
+  margin-top: 2rem;
+}
+
+.summary-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.summary-item {
+  text-align: center;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.summary-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.summary-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #667eea;
+}
+
+.no-activities {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.no-data-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+  opacity: 0.3;
+}
+
+.btn-retry {
+  margin-top: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.btn-retry:hover {
+  background: #5a67d8;
+}
+
+.help-text {
+  margin-top: 1.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+/* Activities Section Styles */
+.activities-section {
+  padding: 20px;
+  background: #f8f9fa;
+  min-height: 500px;
+}
+
+.activities-header {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.activities-header h2 {
+  margin: 0 0 10px 0;
+  color: #333;
+}
+
+.activities-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stats-badges {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.stat-badge {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.activities-filters {
+  background: white;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.filter-group {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.filter-input {
+  flex: 1;
+  padding: 10px 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+.btn-refresh {
+  padding: 10px 20px;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.btn-refresh:hover {
+  background: #1976d2;
+}
+
+.no-activities {
+  text-align: center;
+  padding: 60px 20px;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.no-data-icon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.no-activities p {
+  color: #666;
+  margin-bottom: 20px;
+  font-size: 16px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.btn-retry {
+  padding: 10px 20px;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.btn-clear {
+  padding: 10px 20px;
+  background: #ff9800;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.activities-table-container {
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.activities-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.activities-table th {
+  background: #f5f5f5;
+  padding: 15px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+}
+
+.activities-table td {
+  padding: 15px;
+  border-bottom: 1px solid #eee;
+}
+
+.activities-table tr:hover {
+  background: #f9f9f9;
+}
+
+.activity-employee {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 18px;
+}
+
+.employee-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.activity-id {
+  font-size: 12px;
+  color: #666;
+}
+
+.activity-time small {
+  color: #888;
+  font-size: 11px;
+}
+
+.time-cell {
+  min-width: 120px;
+}
+
+.time-period {
+  background: #e8f5e9;
+  color: #2e7d32;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.project-cell {
+  min-width: 150px;
+}
+
+.project-cell strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.project-no {
+  font-size: 12px;
+  color: #666;
+}
+
+.activity-description {
+  max-width: 300px;
+  min-width: 200px;
+}
+
+.description-content {
+  line-height: 1.5;
+  color: #333;
+}
+
+.activity-remark {
+  margin-top: 8px;
+  padding: 6px;
+  background: #fff8e1;
+  border-left: 3px solid #ffb300;
+  font-size: 12px;
+  color: #666;
+}
+
+.problem-cell {
+  max-width: 200px;
+  min-width: 150px;
+}
+
+.problem-content {
+  background: #ffebee;
+  padding: 8px;
+  border-radius: 4px;
+  border-left: 3px solid #f44336;
+  color: #c62828;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.no-problem {
+  color: #888;
+  font-style: italic;
+}
+
+.resolved-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.resolved-badge.resolved {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.resolved-badge.pending {
+  background: #fff8e1;
+  color: #f57c00;
+}
+
+.activities-summary {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.summary-card h4 {
+  margin: 0 0 20px 0;
+  color: #333;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+
+.summary-item {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.summary-label {
+  display: block;
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.summary-value {
+  display: block;
+  font-size: 24px;
+  font-weight: 600;
+  color: #2196f3;
+}

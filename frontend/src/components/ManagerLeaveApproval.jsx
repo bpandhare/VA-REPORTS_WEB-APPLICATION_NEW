@@ -27,6 +27,7 @@ const ManagerLeaveApproval = () => {
     rejected: 0,
     cancelled: 0
   });
+  const [expandedReasons, setExpandedReasons] = useState({});
 
   const endpoint = useMemo(
     () => import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/daily-target') ?? 'http://localhost:5000/api/daily-target',
@@ -39,6 +40,92 @@ const ManagerLeaveApproval = () => {
   console.log('🔍 [MANAGER DASHBOARD DEBUG] User:', user);
   console.log('🔍 [MANAGER DASHBOARD DEBUG] Is Manager?:', isManager);
   console.log('🔍 [MANAGER DASHBOARD DEBUG] User Role:', user?.role);
+
+  // Toggle reason expansion
+  const toggleReasonExpansion = (leaveId) => {
+    setExpandedReasons(prev => ({
+      ...prev,
+      [leaveId]: !prev[leaveId]
+    }));
+  };
+
+  // Get truncated text with "Read more" functionality
+  const getTruncatedText = (text, leaveId, maxLength = 100) => {
+    if (!text) return 'No reason provided';
+    
+    if (text.length <= maxLength) return text;
+    
+    const isExpanded = expandedReasons[leaveId];
+    
+    if (isExpanded) {
+      return (
+        <>
+          {text}
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleReasonExpansion(leaveId);
+            }}
+            className="read-more-btn"
+          >
+            Read less
+          </button>
+        </>
+      );
+    }
+    
+    return (
+      <>
+        {text.substring(0, maxLength)}...
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleReasonExpansion(leaveId);
+          }}
+          className="read-more-btn"
+        >
+          Read more
+        </button>
+      </>
+    );
+  };
+
+  // Calculate number of days for multi-day leaves
+  const getNumberOfDays = (leave) => {
+    // Check if numberOfDays field exists
+    if (leave.numberOfDays) return parseInt(leave.numberOfDays);
+    
+    // Check if number_of_days field exists
+    if (leave.number_of_days) return parseInt(leave.number_of_days);
+    
+    // Calculate from date range
+    const startDate = leave.startDate || leave.leaveDate;
+    const endDate = leave.endDate || leave.leaveDate;
+    
+    if (startDate && endDate && startDate !== endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const diffTime = Math.abs(end - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays + 1; // Inclusive count
+    }
+    
+    return 1; // Default to 1 day
+  };
+
+  // Format date range for display
+  const getDateRangeDisplay = (leave) => {
+    const numberOfDays = getNumberOfDays(leave);
+    
+    if (numberOfDays === 1) {
+      return new Date(leave.leaveDate).toLocaleDateString('en-IN');
+    }
+    
+    const startDate = leave.startDate || leave.leaveDate;
+    const endDate = leave.endDate || leave.startDate || leave.leaveDate;
+    
+    return `${new Date(startDate).toLocaleDateString('en-IN')} to ${new Date(endDate).toLocaleDateString('en-IN')}`;
+  };
 
   // Debug state changes
   useEffect(() => {
@@ -597,61 +684,87 @@ const ManagerLeaveApproval = () => {
                   <tr>
                     <th>Employee</th>
                     <th>Leave Type</th>
-                    <th>Leave Date</th>
+                    <th>Leave Period</th>
+                    <th>Days</th>
                     <th>Applied On</th>
                     <th>Reason</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pendingLeaves.map(leave => (
-                    <tr key={leave.id}>
-                      <td>
-                        <div className="employee-info">
-                          <strong>{leave.employeeName}</strong>
-                          <div className="employee-details">
-                            ID: {leave.employeeCode || leave.employeeId} | 
-                            Role: {leave.employeeRole}
+                  {pendingLeaves.map(leave => {
+                    const numberOfDays = getNumberOfDays(leave);
+                    const dateRange = getDateRangeDisplay(leave);
+                    
+                    return (
+                      <tr key={leave.id}>
+                        <td>
+                          <div className="employee-info">
+                            <strong>{leave.employeeName}</strong>
+                            <div className="employee-details">
+                              ID: {leave.employeeCode || leave.employeeId} | 
+                              Role: {leave.employeeRole}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="leave-type">
-                          <strong>{leave.leaveTypeName}</strong>
-                          <div className="leave-desc">{leave.leaveTypeDescription}</div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="leave-date">
-                          {new Date(leave.leaveDate).toLocaleDateString('en-IN')}
-                        </div>
-                      </td>
-                      <td>
-                        {new Date(leave.appliedDate).toLocaleDateString('en-IN')}
-                      </td>
-                      <td className="remark-cell">
-                        {leave.remark || 'No reason provided'}
-                      </td>
-                      <td>
-                        <div className="action-buttons">
-                          <button
-                            onClick={() => handleApprove(leave.id)}
-                            disabled={approving === leave.id}
-                            className="btn-approve"
-                          >
-                            {approving === leave.id ? 'Approving...' : 'Approve'}
-                          </button>
-                          <button
-                            onClick={() => handleReject(leave)}
-                            disabled={rejecting === leave.id}
-                            className="btn-reject"
-                          >
-                            {rejecting === leave.id ? 'Rejecting...' : 'Reject'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>
+                          <div className="leave-type">
+                            <strong>{leave.leaveTypeName}</strong>
+                            <div className="leave-desc">{leave.leaveTypeDescription}</div>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="leave-period">
+                            <div className="date-range">{dateRange}</div>
+                            {numberOfDays > 1 && (
+                              <div className="multi-day-indicator">
+                                Multi-day leave
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="days-badge">
+                            <span className="days-count">{numberOfDays}</span>
+                            <span className="days-label">day{numberOfDays > 1 ? 's' : ''}</span>
+                          </div>
+                        </td>
+                        <td>
+                          {new Date(leave.appliedDate).toLocaleDateString('en-IN')}
+                        </td>
+                        <td className="remark-cell">
+                          <div className="reason-container">
+                            <div className="reason-text">
+                              {getTruncatedText(leave.remark || 'No reason provided', leave.id)}
+                            </div>
+                            {leave.remark && leave.remark.length > 100 && (
+                              <div className="reason-length">
+                                ({leave.remark.length} characters)
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="action-buttons">
+                            <button
+                              onClick={() => handleApprove(leave.id)}
+                              disabled={approving === leave.id}
+                              className="btn-approve"
+                            >
+                              {approving === leave.id ? 'Approving...' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => handleReject(leave)}
+                              disabled={rejecting === leave.id}
+                              className="btn-reject"
+                            >
+                              {rejecting === leave.id ? 'Rejecting...' : 'Reject'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -691,58 +804,86 @@ const ManagerLeaveApproval = () => {
                   <tr>
                     <th>Employee</th>
                     <th>Leave Type</th>
-                    <th>Leave Date</th>
+                    <th>Leave Period</th>
+                    <th>Days</th>
                     <th>Status</th>
                     <th>Applied On</th>
                     <th>Approved/Rejected By</th>
-                    <th>Remarks</th>
+                    <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allLeaves.map(leave => (
-                    <tr key={leave.id}>
-                      <td>
-                        <div className="employee-info">
-                          <strong>{leave.employeeName}</strong>
-                          <div className="employee-details">
-                            ID: {leave.employeeCode || leave.employeeId}
-                          </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="leave-type">
-                          <strong>{leave.leaveTypeName}</strong>
-                        </div>
-                      </td>
-                      <td>
-                        {new Date(leave.leaveDate).toLocaleDateString('en-IN')}
-                      </td>
-                      <td>
-                        {getStatusBadge(leave.leave_status)}
-                      </td>
-                      <td>
-                        {new Date(leave.appliedDate).toLocaleDateString('en-IN')}
-                      </td>
-                      <td>
-                        {leave.leave_approved_by && (
-                          <div>
-                            <div>{leave.leave_approved_by}</div>
-                            <div className="timestamp">
-                              {new Date(leave.leave_approved_at).toLocaleDateString('en-IN')}
+                  {allLeaves.map(leave => {
+                    const numberOfDays = getNumberOfDays(leave);
+                    const dateRange = getDateRangeDisplay(leave);
+                    
+                    return (
+                      <tr key={leave.id}>
+                        <td>
+                          <div className="employee-info">
+                            <strong>{leave.employeeName}</strong>
+                            <div className="employee-details">
+                              ID: {leave.employeeCode || leave.employeeId}
                             </div>
-                            {leave.leave_rejection_reason && (
-                              <div className="rejection-reason">
-                                <strong>Reason:</strong> {leave.leave_rejection_reason}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="leave-type">
+                            <strong>{leave.leaveTypeName}</strong>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="leave-period">
+                            <div className="date-range">{dateRange}</div>
+                            {numberOfDays > 1 && (
+                              <div className="multi-day-indicator">
+                                Multi-day leave
                               </div>
                             )}
                           </div>
-                        )}
-                      </td>
-                      <td className="remark-cell">
-                        {leave.remark || '-'}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>
+                          <div className="days-badge">
+                            <span className="days-count">{numberOfDays}</span>
+                            <span className="days-label">day{numberOfDays > 1 ? 's' : ''}</span>
+                          </div>
+                        </td>
+                        <td>
+                          {getStatusBadge(leave.leave_status)}
+                        </td>
+                        <td>
+                          {new Date(leave.appliedDate).toLocaleDateString('en-IN')}
+                        </td>
+                        <td>
+                          {leave.leave_approved_by && (
+                            <div>
+                              <div>{leave.leave_approved_by}</div>
+                              <div className="timestamp">
+                                {new Date(leave.leave_approved_at).toLocaleDateString('en-IN')}
+                              </div>
+                              {leave.leave_rejection_reason && (
+                                <div className="rejection-reason">
+                                  <strong>Reason:</strong> {leave.leave_rejection_reason}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="remark-cell">
+                          <div className="reason-container">
+                            <div className="reason-text">
+                              {getTruncatedText(leave.remark || 'No reason provided', leave.id)}
+                            </div>
+                            {leave.remark && leave.remark.length > 100 && (
+                              <div className="reason-length">
+                                ({leave.remark.length} characters)
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -751,17 +892,18 @@ const ManagerLeaveApproval = () => {
       )}
 
       {/* Rejection Modal */}
-      {showRejectModal && (
+      {showRejectModal && selectedLeave && (
         <div className="modal-overlay">
           <div className="modal-content">
             <h3>Reject Leave Application</h3>
             <p>Please provide a reason for rejecting this leave:</p>
             
             <div className="leave-info">
-              <p><strong>Employee:</strong> {selectedLeave?.employeeName}</p>
-              <p><strong>Leave Type:</strong> {selectedLeave?.leaveTypeName}</p>
-              <p><strong>Leave Date:</strong> {new Date(selectedLeave?.leaveDate).toLocaleDateString('en-IN')}</p>
-              <p><strong>Reason:</strong> {selectedLeave?.remark || 'No reason provided'}</p>
+              <p><strong>Employee:</strong> {selectedLeave.employeeName}</p>
+              <p><strong>Leave Type:</strong> {selectedLeave.leaveTypeName}</p>
+              <p><strong>Leave Period:</strong> {getDateRangeDisplay(selectedLeave)}</p>
+              <p><strong>Number of Days:</strong> {getNumberOfDays(selectedLeave)}</p>
+              <p><strong>Reason:</strong> {selectedLeave.remark || 'No reason provided'}</p>
             </div>
             
             <textarea
@@ -784,10 +926,10 @@ const ManagerLeaveApproval = () => {
               </button>
               <button
                 onClick={confirmReject}
-                disabled={!rejectionReason.trim() || rejecting === selectedLeave?.id}
+                disabled={!rejectionReason.trim() || rejecting === selectedLeave.id}
                 className="btn-confirm-reject"
               >
-                {rejecting === selectedLeave?.id ? 'Rejecting...' : 'Confirm Reject'}
+                {rejecting === selectedLeave.id ? 'Rejecting...' : 'Confirm Reject'}
               </button>
             </div>
           </div>

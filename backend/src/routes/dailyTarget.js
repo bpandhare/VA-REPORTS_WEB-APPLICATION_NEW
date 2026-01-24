@@ -94,7 +94,284 @@ router.get('/employees', verifyToken, async (req, res) => {
     });
   }
 });
+// ==================== ATTENDANCE CALCULATION FUNCTIONS ====================
 
+// Calculate daily attendance for a user on a specific date
+// ==================== ATTENDANCE CALCULATION FUNCTIONS ====================
+
+// Calculate daily attendance for a user on a specific date
+const calculateDailyAttendance = async (userId, date) => {
+  try {
+    console.log(`🔍 [ATTENDANCE] Calculating attendance for user ${userId} on ${date}`);
+    
+    // Check for daily report (office/site)
+    const [dailyReports] = await pool.execute(
+      `SELECT id, location_type, leave_type, leave_status 
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ?`,
+      [userId, date]
+    );
+    
+    // Check for hourly report
+    const [hourlyReports] = await pool.execute(
+      `SELECT id FROM hourly_reports 
+       WHERE user_id = ? AND report_date = ?`,
+      [userId, date]
+    );
+    
+    // Check for leave applications specifically
+    const [leaves] = await pool.execute(
+      `SELECT id, leave_type, leave_status 
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ? AND location_type = 'leave'`,
+      [userId, date]
+    );
+    
+    // Priority 1: Check if there's a daily report (office/site) - highest priority
+    const dailyReport = dailyReports.find(r => r.location_type === 'office' || r.location_type === 'site');
+    if (dailyReport) {
+      console.log(`✅ [ATTENDANCE] Daily report (${dailyReport.location_type}) exists for ${date} - User is PRESENT`);
+      return 'present';
+    }
+    
+    // Priority 2: Check if there's an hourly report
+    if (hourlyReports.length > 0) {
+      console.log(`✅ [ATTENDANCE] Hourly report exists for ${date} - User is PRESENT`);
+      return 'present';
+    }
+    
+    // Priority 3: Check for leaves
+    if (leaves.length > 0) {
+      const leave = leaves[0];
+      
+      if (leave.leave_status === 'approved') {
+        console.log(`✅ [ATTENDANCE] Approved leave for ${date} - User is ON_LEAVE`);
+        return 'on_leave';
+      } 
+      else if (leave.leave_status === 'rejected') {
+        // Check if there's also a daily or hourly report on the same date (could be added later)
+        // This handles the case where leave is rejected but user still comes to work
+        const [checkDailyReport] = await pool.execute(
+          `SELECT id FROM daily_target_reports 
+           WHERE user_id = ? AND report_date = ? 
+           AND (location_type = 'office' OR location_type = 'site')`,
+          [userId, date]
+        );
+        
+        const [checkHourlyReport] = await pool.execute(
+          `SELECT id FROM hourly_reports 
+           WHERE user_id = ? AND report_date = ?`,
+          [userId, date]
+        );
+        
+        if (checkDailyReport.length > 0 || checkHourlyReport.length > 0) {
+          console.log(`✅ [ATTENDANCE] Rejected leave but daily/hourly report exists - User is PRESENT`);
+          return 'present';
+        } else {
+          console.log(`❌ [ATTENDANCE] Rejected leave, no daily/hourly report - User is ABSENT`);
+          return 'absent';
+        }
+      }
+      else if (leave.leave_status === 'pending') {
+        console.log(`⏳ [ATTENDANCE] Pending leave for ${date} - Waiting for approval`);
+        return 'pending_approval';
+      }
+      else if (leave.leave_status === 'cancelled') {
+        console.log(`❌ [ATTENDANCE] Cancelled leave for ${date} - Mark as absent`);
+        return 'absent';
+      }
+      else if (!leave.leave_status || leave.leave_status === null) {
+        // Handle legacy records without leave_status
+        console.log(`⚠️ [ATTENDANCE] Legacy leave record for ${date} - Assuming approved`);
+        return 'on_leave';
+      }
+    }
+    
+    // No report and no leave = absent
+    console.log(`❌ [ATTENDANCE] No daily/hourly report or leave found for ${date} - User is ABSENT`);
+    return 'absent';
+    
+  } catch (error) {
+    console.error('❌ [ATTENDANCE] Error calculating attendance:', error);
+    return 'error';
+  }
+};
+// Check if user has hourly report for a specific date
+const hasHourlyReportForDate = async (userId, date) => {
+  try {
+    const [hourlyReports] = await pool.execute(
+      `SELECT COUNT(*) as count 
+       FROM hourly_reports 
+       WHERE user_id = ? AND report_date = ?`,
+      [userId, date]
+    );
+    
+    return hourlyReports[0]?.count > 0;
+  } catch (error) {
+    console.error('Error checking hourly reports:', error);
+    return false;
+  }
+};
+
+// Then update the attendance endpoints to include hourly report info:
+
+// Get attendance status for a specific date (updated)
+router.get('/attendance/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userId = req.user.id;
+    
+    console.log(`📊 [ATTENDANCE API] Fetching attendance for ${date} for user ${userId}`);
+    
+    const attendanceStatus = await calculateDailyAttendance(userId, date);
+    
+    // Get detailed information
+    const [reports] = await pool.execute(
+      `SELECT id, location_type, leave_type, leave_status, leave_approval_remark,
+              in_time, out_time, site_location, customer_name,
+              daily_target_achieved
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, date]
+    );
+    
+    // Check for hourly reports
+    const hasHourlyReport = await hasHourlyReportForDate(userId, date);
+    
+    let details = {};
+    if (reports.length > 0) {
+      const report = reports[0];
+      details = {
+        id: report.id,
+        locationType: report.location_type,
+        leaveType: report.leave_type,
+        leaveStatus: report.leave_status,
+        remark: report.leave_approval_remark,
+        inTime: report.in_time,
+        outTime: report.out_time,
+        siteLocation: report.site_location,
+        customerName: report.customer_name,
+        daily_target_achieved: report.daily_target_achieved,
+        hasHourlyReport: hasHourlyReport
+      };
+    } else if (hasHourlyReport) {
+      // Get hourly report details
+      const [hourlyDetails] = await pool.execute(
+        `SELECT hourly_achieved 
+         FROM hourly_reports 
+         WHERE user_id = ? AND report_date = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId, date]
+      );
+      
+      details = {
+        hasHourlyReport: true,
+        hourly_achieved: hourlyDetails[0]?.hourly_achieved || ''
+      };
+    }
+    
+    res.json({
+      success: true,
+      date: date,
+      status: attendanceStatus,
+      details: details,
+      note: hasHourlyReport 
+        ? 'Hourly report submitted - marked as present' 
+        : (attendanceStatus === 'absent' ? 'No daily/hourly report or approved leave found' : null)
+    });
+    
+  } catch (error) {
+    console.error('❌ [ATTENDANCE API] Error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch attendance status',
+      error: error.message 
+    });
+  }
+});
+// Middleware to update attendance when daily report is submitted after rejected leave
+const updateAttendanceAfterRejectedLeave = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { reportDate, locationType } = req.body;
+    
+    // Only run this check for office/site reports (not leave applications)
+    if (locationType === 'office' || locationType === 'site') {
+      console.log(`🔍 [ATTENDANCE UPDATE] Checking for rejected leaves on ${reportDate} for user ${userId}`);
+      
+      // Check if there's a rejected leave for this date
+      const [rejectedLeaves] = await pool.execute(
+        `SELECT id, leave_type, leave_status 
+         FROM daily_target_reports 
+         WHERE user_id = ? 
+         AND report_date = ? 
+         AND location_type = 'leave' 
+         AND leave_status = 'rejected'`,
+        [userId, reportDate]
+      );
+      
+      if (rejectedLeaves.length > 0) {
+        console.log(`✅ [ATTENDANCE UPDATE] Found rejected leave on ${reportDate}. User is submitting daily report - marking as present.`);
+        
+        // Update the rejected leave record to indicate daily report was submitted
+        // (This can be useful for tracking purposes)
+        for (const leave of rejectedLeaves) {
+          await pool.execute(
+            `UPDATE daily_target_reports SET 
+              leave_approval_remark = CONCAT(COALESCE(leave_approval_remark, ''), ' [Daily report submitted - Present]'),
+              updated_at = NOW()
+             WHERE id = ?`,
+            [leave.id]
+          );
+          console.log(`✅ [ATTENDANCE UPDATE] Updated rejected leave record ${leave.id}`);
+        }
+        
+        // Add a flag to the request to indicate this was a rejected leave case
+        req.wasRejectedLeave = true;
+      }
+    }
+    
+    next();
+  } catch (error) {
+    console.error('❌ [ATTENDANCE UPDATE] Error:', error);
+    // Don't block the request if this check fails
+    next();
+  }
+};
+// Middleware to handle leave status during daily report submission
+const checkLeaveStatusForDailyReport = async (req, res, next) => {
+  const { userId, date } = req.body;
+  
+  try {
+    // Check for rejected leaves
+    const rejectedLeave = await Leave.findOne({
+      where: {
+        userId,
+        date: new Date(date),
+        status: 'rejected'
+      }
+    });
+    
+    if (rejectedLeave) {
+      // If leave was rejected, force attendance to be present
+      req.body.attendanceStatus = 'present';
+      req.body.isOnLeave = false;
+      
+      // You might also want to update the leave record
+      await rejectedLeave.update({
+        dailyReportSubmitted: true,
+        markedAsPresent: true
+      });
+    }
+    
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 // GET all daily reports for a specific date (for managers)
 router.get('/all-reports', verifyToken, async (req, res) => {
   try {
@@ -1004,6 +1281,581 @@ router.post('/', verifyToken, upload.single('momReport'), async (req, res) => {
       leaveType: dbData.leave_type,
       reportDate: dbData.report_date,
       leaveStatus: dbData.leave_status
+    });
+    
+  } catch (error) {
+    console.error('❌ [DAILY-TARGET] POST Error:', error);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error code:', error.code);
+    console.error('❌ SQL State:', error.sqlState);
+    console.error('❌ SQL Message:', error.sqlMessage);
+    console.error('❌ Stack trace:', error.stack);
+    
+    // Delete uploaded file if there was an error
+    if (req.file && fs.existsSync(req.file.path)) {
+      console.log('🗑️ Deleting uploaded file:', req.file.path);
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('❌ Failed to delete file:', unlinkError);
+      }
+    }
+    
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to save daily target report',
+      error: error.message,
+      sqlError: error.sqlMessage,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  } finally {
+    console.log('📝 [DAILY-TARGET] ========== END OF POST REQUEST ==========');
+  }
+});
+
+// ==================== ATTENDANCE ENDPOINTS ====================
+
+// Get attendance status for a specific date
+router.get('/attendance/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userId = req.user.id;
+    
+    console.log(`📊 [ATTENDANCE API] Fetching attendance for ${date} for user ${userId}`);
+    
+    const attendanceStatus = await calculateDailyAttendance(userId, date);
+    
+    // Get detailed information
+    const [reports] = await pool.execute(
+      `SELECT id, location_type, leave_type, leave_status, leave_approval_remark,
+              in_time, out_time, site_location, customer_name
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [userId, date]
+    );
+    
+    let details = {};
+    if (reports.length > 0) {
+      const report = reports[0];
+      details = {
+        id: report.id,
+        locationType: report.location_type,
+        leaveType: report.leave_type,
+        leaveStatus: report.leave_status,
+        remark: report.leave_approval_remark,
+        inTime: report.in_time,
+        outTime: report.out_time,
+        siteLocation: report.site_location,
+        customerName: report.customer_name
+      };
+    }
+    
+    res.json({
+      success: true,
+      date: date,
+      status: attendanceStatus,
+      details: details,
+      note: attendanceStatus === 'absent' ? 'No daily report or approved leave found' : null
+    });
+    
+  } catch (error) {
+    console.error('❌ [ATTENDANCE API] Error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch attendance status',
+      error: error.message 
+    });
+  }
+});
+
+// Get attendance for all users on a specific date (for managers)
+router.get('/attendance-all/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userRole = req.user.role;
+    
+    // Only managers and team leaders can access this
+    if (userRole !== 'Manager' && userRole !== 'Team Leader') {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only managers can view all attendance.' 
+      });
+    }
+    
+    console.log(`👨‍💼 [ATTENDANCE ALL] Manager fetching attendance for all users on ${date}`);
+    
+    // Get all active users (exclude admin roles)
+    const [users] = await pool.execute(`
+      SELECT id, username, employee_id, role 
+      FROM users 
+      WHERE role NOT IN ('admin', 'superadmin')
+      ORDER BY username
+    `);
+    
+    const attendanceData = [];
+    
+    // Calculate attendance for each user
+    for (const user of users) {
+      const status = await calculateDailyAttendance(user.id, date);
+      
+      // Get report details if exists
+      const [reports] = await pool.execute(
+        `SELECT location_type, leave_type, leave_status, site_location, customer_name
+         FROM daily_target_reports 
+         WHERE user_id = ? AND report_date = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [user.id, date]
+      );
+      
+      let details = null;
+      if (reports.length > 0) {
+        details = {
+          locationType: reports[0].location_type,
+          leaveType: reports[0].leave_type,
+          leaveStatus: reports[0].leave_status,
+          siteLocation: reports[0].site_location,
+          customerName: reports[0].customer_name
+        };
+      }
+      
+      attendanceData.push({
+        userId: user.id,
+        userName: user.username,
+        employeeId: user.employee_id,
+        role: user.role,
+        status: status,
+        details: details,
+        date: date
+      });
+    }
+    
+    // Calculate summary statistics
+    const summary = {
+      total: attendanceData.length,
+      present: attendanceData.filter(a => a.status === 'present').length,
+      on_leave: attendanceData.filter(a => a.status === 'on_leave').length,
+      absent: attendanceData.filter(a => a.status === 'absent').length,
+      pending_approval: attendanceData.filter(a => a.status === 'pending_approval').length,
+      error: attendanceData.filter(a => a.status === 'error').length
+    };
+    
+    res.json({
+      success: true,
+      date: date,
+      summary: summary,
+      attendance: attendanceData,
+      fetchedAt: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ [ATTENDANCE ALL] Error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch attendance data',
+      error: error.message 
+    });
+  }
+});
+// Helper function to update attendance status for a user on a specific date
+const updateAttendanceStatus = async (userId, date, status, notes = '') => {
+  try {
+    console.log(`📝 [ATTENDANCE UPDATE] Updating attendance for user ${userId} on ${date} to ${status}`);
+    
+    // Check if attendance log already exists
+    const [existingLogs] = await pool.execute(
+      `SELECT id FROM attendance_logs 
+       WHERE user_id = ? AND date = ?`,
+      [userId, date]
+    );
+    
+    if (existingLogs.length > 0) {
+      // Update existing log
+      await pool.execute(
+        `UPDATE attendance_logs SET 
+          status = ?, 
+          notes = CONCAT(COALESCE(notes, ''), ' | ', ?),
+          updated_at = NOW()
+         WHERE user_id = ? AND date = ?`,
+        [status, notes || 'Updated via system', userId, date]
+      );
+    } else {
+      // Create new log
+      await pool.execute(
+        `INSERT INTO attendance_logs (user_id, date, status, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, NOW(), NOW())`,
+        [userId, date, status, notes || 'Created via system']
+      );
+    }
+    
+    console.log(`✅ [ATTENDANCE UPDATE] Attendance updated successfully`);
+    return true;
+    
+  } catch (error) {
+    console.error('❌ [ATTENDANCE UPDATE] Error:', error);
+    return false;
+  }
+};
+// ==================== POST ENDPOINT ====================
+
+router.post('/', verifyToken, upload.single('momReport'), updateAttendanceAfterRejectedLeave, async (req, res) => {
+  console.log('📝 [DAILY-TARGET] ========== STARTING POST REQUEST ==========');
+  
+  try {
+    const userId = req.user.id;
+    const userGender = req.user.gender || 'male';
+    
+    console.log('📝 User ID:', userId);
+    console.log('📝 User Gender:', userGender);
+    console.log('📝 Request body keys:', Object.keys(req.body));
+    console.log('📝 Request file:', req.file ? req.file.filename : 'No file');
+
+    // Parse form data
+    const formData = req.body;
+    console.log('📝 Form data received:', formData);
+
+    // Set report date
+    const reportDate = formData.reportDate || new Date().toISOString().slice(0, 10);
+    console.log('📝 Report date:', reportDate);
+
+    // Check if report already exists for this date
+    const [existing] = await pool.execute(
+      `SELECT id, location_type, leave_type 
+       FROM daily_target_reports 
+       WHERE user_id = ? AND report_date = ? 
+       LIMIT 1`,
+      [userId, reportDate]
+    );
+
+    if (existing.length > 0) {
+      const existingReport = existing[0];
+      const existingType = existingReport.location_type === 'leave' 
+        ? `${LEAVE_TYPES.find(lt => lt.id === existingReport.leave_type)?.name || existingReport.leave_type} leave`
+        : `${existingReport.location_type} report`;
+      
+      console.log('❌ Report already exists:', existingType);
+      
+      return res.status(409).json({ 
+        success: false,
+        message: `${existingType} already exists for ${reportDate}. Only one report allowed per day.` 
+      });
+    }
+
+    // Validate location type
+    if (!formData.locationType) {
+      console.log('❌ Location type is required');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Location type is required' 
+      });
+    }
+
+    // Handle leave validation
+    if (formData.locationType === 'leave') {
+      if (!formData.leaveType) {
+        console.log('❌ Leave type is required');
+        return res.status(400).json({ 
+          success: false,
+          message: 'Leave type is required' 
+        });
+      }
+      
+      const leaveConfig = LEAVE_TYPES.find(lt => lt.id === formData.leaveType);
+      if (!leaveConfig) {
+        console.log('❌ Invalid leave type:', formData.leaveType);
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid leave type' 
+        });
+      }
+      
+      // Check gender restriction
+      if (leaveConfig.genderSpecific && leaveConfig.genderSpecific !== userGender) {
+        return res.status(400).json({ 
+          success: false,
+          message: `This leave type is only available for ${leaveConfig.genderSpecific} employees` 
+        });
+      }
+      
+      // Validate leave date
+      const dateValidation = validateLeaveDate(reportDate);
+      if (!dateValidation.valid) {
+        return res.status(400).json({ 
+          success: false,
+          message: dateValidation.message 
+        });
+      }
+      
+      // Check leave balance (only approved leaves count)
+      const reportYear = new Date(reportDate).getFullYear();
+      if (leaveConfig.maxDays > 0) {
+        const [leaveCount] = await pool.execute(
+          `SELECT COUNT(*) as leaveCount 
+           FROM daily_target_reports 
+           WHERE user_id = ? 
+           AND location_type = 'leave' 
+           AND leave_type = ?
+           AND (leave_status = 'approved' OR leave_status IS NULL)
+           AND YEAR(report_date) = ?`,
+          [userId, formData.leaveType, reportYear]
+        );
+        
+        const usedLeaves = leaveCount[0]?.leaveCount || 0;
+        
+        if (usedLeaves >= leaveConfig.maxDays) {
+          return res.status(400).json({ 
+            success: false,
+            message: `No ${leaveConfig.name} leaves remaining for this year. Used: ${usedLeaves}/${leaveConfig.maxDays}` 
+          });
+        }
+      }
+    }
+
+    // Get user info for incharge field
+    let incharge = formData.incharge;
+    if (!incharge) {
+      const [userInfo] = await pool.execute(
+        'SELECT username FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (userInfo.length > 0) {
+        incharge = userInfo[0].username;
+      }
+    }
+
+    // Prepare data for database
+    const reportedInTime = formData.actualInTime || formData.inTime || null
+    const reportedOutTime = formData.actualOutTime || formData.outTime || null
+
+    // Set initial leave status: ALL LEAVES ARE PENDING FOR APPROVAL
+    const leaveStatus = formData.locationType === 'leave' ? 'pending' : null;
+
+    const dbData = {
+      report_date: reportDate,
+      in_time: formData.locationType === 'leave' ? '00:00' : (reportedInTime || '00:00'),
+      out_time: formData.locationType === 'leave' ? '00:00' : (reportedOutTime || '00:00'),
+      customer_name: formData.locationType === 'leave' ? 'N/A' : (formData.customerName || ''),
+      customer_person: formData.locationType === 'leave' ? 'N/A' : (formData.customerPerson || ''),
+      customer_contact: formData.locationType === 'leave' ? 'N/A' : (formData.customerContact || ''),
+      end_customer_name: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerName || ''),
+      end_customer_person: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerPerson || ''),
+      end_customer_contact: formData.locationType === 'leave' ? 'N/A' : (formData.endCustomerContact || ''),
+      project_no: formData.locationType === 'leave' ? 'N/A' : (formData.projectNo || ''),
+      location_type: formData.locationType,
+      leave_type: formData.leaveType || null,
+      site_location: formData.siteLocation || null,
+      location_lat: formData.locationLat || null,
+      location_lng: formData.locationLng || null,
+      mom_report_path: req.file ? req.file.path : null,
+      daily_target_planned: formData.locationType === 'leave' ? 'N/A' : (formData.dailyTargetPlanned || ''),
+      daily_target_achieved: formData.locationType === 'leave' ? 'N/A' : (formData.dailyTargetAchieved || ''),
+      additional_activity: formData.additionalActivity || null,
+      who_added_activity: formData.whoAddedActivity || null,
+      daily_pending_target: formData.dailyPendingTarget || null,
+      reason_pending_target: formData.reasonPendingTarget || null,
+      problem_faced: formData.problemFaced || null,
+      problem_resolved: formData.problemResolved || null,
+      online_support_required: formData.onlineSupportRequired || null,
+      support_engineer_name: formData.supportEngineerName || null,
+      site_start_date: formData.siteStartDate || (formData.locationType === 'leave' ? reportDate : new Date().toISOString().slice(0, 10)),
+      site_end_date: formData.siteEndDate || null,
+      incharge: incharge,
+      remark: formData.remark || null,
+      user_id: userId,
+      leave_status: leaveStatus // Add leave_status field
+    };
+
+    console.log('📝 Data prepared for database:', dbData);
+
+    // Insert into database with leave_status
+    const sql = `
+      INSERT INTO daily_target_reports
+      (report_date, in_time, out_time, customer_name, customer_person, customer_contact,
+       end_customer_name, end_customer_person, end_customer_contact,
+       project_no, location_type, leave_type, site_location, location_lat, location_lng,
+       mom_report_path, daily_target_planned, daily_target_achieved,
+       additional_activity, who_added_activity, daily_pending_target,
+       reason_pending_target, problem_faced, problem_resolved,
+       online_support_required, support_engineer_name,
+       site_start_date, site_end_date, incharge, remark, user_id, leave_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const params = [
+      dbData.report_date,
+      dbData.in_time,
+      dbData.out_time,
+      dbData.customer_name,
+      dbData.customer_person,
+      dbData.customer_contact,
+      dbData.end_customer_name,
+      dbData.end_customer_person,
+      dbData.end_customer_contact,
+      dbData.project_no,
+      dbData.location_type,
+      dbData.leave_type,
+      dbData.site_location,
+      dbData.location_lat,
+      dbData.location_lng,
+      dbData.mom_report_path,
+      dbData.daily_target_planned,
+      dbData.daily_target_achieved,
+      dbData.additional_activity,
+      dbData.who_added_activity,
+      dbData.daily_pending_target,
+      dbData.reason_pending_target,
+      dbData.problem_faced,
+      dbData.problem_resolved,
+      dbData.online_support_required,
+      dbData.support_engineer_name,
+      dbData.site_start_date,
+      dbData.site_end_date,
+      dbData.incharge,
+      dbData.remark,
+      dbData.user_id,
+      dbData.leave_status
+    ];
+    
+    console.log('📝 Executing SQL with', params.length, 'parameters');
+    
+    const [result] = await pool.execute(sql, params);
+    console.log('✅ Daily target report inserted with ID:', result.insertId);
+
+    // ATTENDANCE LOGIC: Check if this was submitted after a rejected leave
+    if (req.wasRejectedLeave) {
+      console.log(`✅ [ATTENDANCE] Daily report submitted for date with rejected leave - User is now marked as present`);
+      
+      // Update the rejected leave record to show daily report was submitted
+      try {
+        await pool.execute(
+          `UPDATE daily_target_reports SET 
+            leave_approval_remark = CONCAT(COALESCE(leave_approval_remark, ''), ' [Daily report submitted - Marked as Present]'),
+            updated_at = NOW()
+           WHERE user_id = ? 
+           AND report_date = ? 
+           AND location_type = 'leave' 
+           AND leave_status = 'rejected'`,
+          [userId, reportDate]
+        );
+        console.log(`✅ Updated rejected leave record for ${reportDate}`);
+      } catch (updateError) {
+        console.warn('⚠️ Could not update rejected leave record:', updateError.message);
+      }
+      
+      // Create attendance log
+      try {
+        // Check if attendance_logs table exists, create it if not
+        try {
+          await pool.execute(
+            `CREATE TABLE IF NOT EXISTS attendance_logs (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              user_id INT NOT NULL,
+              date DATE NOT NULL,
+              status VARCHAR(50) NOT NULL,
+              notes TEXT,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+              UNIQUE KEY unique_user_date (user_id, date)
+            )`
+          );
+        } catch (createError) {
+          console.log('Attendance logs table already exists or cannot be created');
+        }
+        
+        // Insert or update attendance log
+        await pool.execute(
+          `INSERT INTO attendance_logs (user_id, date, status, notes, created_at)
+           VALUES (?, ?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE 
+           status = VALUES(status),
+           notes = CONCAT(COALESCE(notes, ''), ' | ', VALUES(notes)),
+           updated_at = NOW()`,
+          [userId, reportDate, 'present', 'Daily report submitted after rejected leave']
+        );
+        console.log(`✅ Created attendance log for ${reportDate}`);
+      } catch (logError) {
+        console.warn('⚠️ Could not create attendance log:', logError.message);
+      }
+    }
+
+    // Create activity record
+    try {
+      console.log('📝 Creating activity record...');
+      
+      const [userInfo] = await pool.execute(
+        'SELECT username, employee_id FROM users WHERE id = ?',
+        [userId]
+      );
+      
+      if (userInfo.length > 0) {
+        const isLeave = dbData.location_type === 'leave';
+        const activityStatus = isLeave ? 'leave' : 'present';
+        const activityType = isLeave ? 'leave' : 'daily_report';
+        
+        const activityProject = isLeave 
+          ? `On ${LEAVE_TYPES.find(lt => lt.id === dbData.leave_type)?.name || dbData.leave_type || 'Leave'}`  
+          : (dbData.end_customer_name || dbData.customer_name || 'No Project');
+        
+        const activityLocation = isLeave 
+          ? 'Leave' 
+          : (dbData.site_location || dbData.location_type || 'Office');
+        
+        const activityTarget = isLeave 
+          ? `Leave Application - ${LEAVE_TYPES.find(lt => lt.id === dbData.leave_type)?.name || dbData.leave_type || 'Leave'}` 
+          : (dbData.daily_target_achieved || 'No target specified');
+        
+        await pool.execute(
+          `INSERT INTO activities (
+            date, time, engineer_name, engineer_id, project, location,
+            activity_target, problem, status, start_time, end_time,
+            activity_type, logged_at, leave_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+          [
+            dbData.report_date,
+            isLeave ? '00:00' : dbData.in_time,
+            userInfo[0].username,
+            userInfo[0].employee_id,
+            activityProject,
+            activityLocation,
+            activityTarget,
+            dbData.problem_faced || '',
+            activityStatus,
+            isLeave ? '00:00' : dbData.in_time,
+            isLeave ? '00:00' : dbData.out_time,
+            activityType,
+            isLeave ? `Leave: ${LEAVE_TYPES.find(lt => lt.id === dbData.leave_type)?.name || dbData.leave_type || 'Leave'}` : null
+          ]
+        );
+        console.log(`✅ Activity record created`);
+      }
+    } catch (activityError) {
+      console.warn('⚠️ Could not create activity record:', activityError.message);
+    }
+
+    console.log('✅ [DAILY-TARGET] POST request completed successfully');
+    
+    // Determine success message based on location type and rejected leave scenario
+    let successMessage = '';
+    if (dbData.location_type === 'leave') {
+      successMessage = 'Leave application submitted successfully! Waiting for manager approval.';
+    } else if (req.wasRejectedLeave) {
+      successMessage = 'Daily report submitted successfully! You have been marked as present (rejected leave overridden).';
+    } else {
+      successMessage = 'Daily target report saved successfully';
+    }
+    
+    res.status(201).json({
+      success: true,
+      message: successMessage,
+      id: result.insertId,
+      locationType: dbData.location_type,
+      leaveType: dbData.leave_type,
+      reportDate: dbData.report_date,
+      leaveStatus: dbData.leave_status,
+      wasRejectedLeave: req.wasRejectedLeave || false
     });
     
   } catch (error) {

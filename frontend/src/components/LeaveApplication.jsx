@@ -34,6 +34,13 @@ const LeaveApplication = () => {
     return today.toISOString().slice(0, 10)
   }
 
+  // Get max date (e.g., 6 months from now) for leave applications
+  const getMaxDate = () => {
+    const maxDate = new Date()
+    maxDate.setMonth(maxDate.getMonth() + 6) // Allow leaves up to 6 months in advance
+    return maxDate.toISOString().slice(0, 10)
+  }
+
   // Fetch leave data on component mount
   useEffect(() => {
     fetchLeaveData()
@@ -118,12 +125,34 @@ const LeaveApplication = () => {
       return
     }
 
+    if (name === 'reportDate') {
+      // Validate that the date is not in the past
+      const selectedDate = new Date(value)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0) // Reset time for accurate comparison
+      
+      if (selectedDate < today) {
+        setAlert({ type: 'error', message: 'Cannot apply for leave on a past date' })
+        return
+      }
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
   const checkLeaveAvailability = async () => {
     if (!formData.leaveType || !formData.reportDate) {
       setAlert({ type: 'error', message: 'Please select leave type and date first' })
+      return
+    }
+    
+    // Validate date is not in the past
+    const selectedDate = new Date(formData.reportDate)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    if (selectedDate < today) {
+      setAlert({ type: 'error', message: 'Cannot apply for leave on a past date' })
       return
     }
     
@@ -180,6 +209,16 @@ const LeaveApplication = () => {
 
     if (!leaveAvailability?.available && leaveAvailability !== null) {
       setAlert({ type: 'error', message: 'Please check leave availability first' })
+      return
+    }
+
+    // Validate date is not in the past
+    const selectedDate = new Date(formData.reportDate)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    if (selectedDate < today) {
+      setAlert({ type: 'error', message: 'Cannot apply for leave on a past date' })
       return
     }
 
@@ -382,7 +421,8 @@ const LeaveApplication = () => {
               name="reportDate"
               value={formData.reportDate}
               onChange={handleChange}
-              min={getTodayDate()}
+              min={getTodayDate()} // Allow from today onwards
+              max={getMaxDate()} // Set a reasonable maximum date
             />
             {/* Optional: Show weekend indicator (not for validation) */}
             {isWeekend(formData.reportDate) && (
@@ -390,6 +430,9 @@ const LeaveApplication = () => {
                 Note: This is a weekend day
               </small>
             )}
+            <small style={{ color: '#6c757d', display: 'block', marginTop: '0.25rem' }}>
+              You can apply leave for today, tomorrow, or future dates
+            </small>
           </label>
 
           <label>
@@ -416,6 +459,7 @@ const LeaveApplication = () => {
                   value={formData.startDate || formData.reportDate}
                   onChange={handleChange}
                   min={getTodayDate()}
+                  max={getMaxDate()}
                 />
               </label>
               <label>
@@ -426,6 +470,7 @@ const LeaveApplication = () => {
                   value={formData.endDate}
                   onChange={handleChange}
                   min={formData.startDate || formData.reportDate}
+                  max={getMaxDate()}
                 />
               </label>
             </>
@@ -464,6 +509,11 @@ const LeaveApplication = () => {
                   <strong style={{ color: '#856404' }}>Leave Application</strong>
                   <div style={{ color: '#856404', fontSize: '0.9rem', marginTop: '0.25rem' }}>
                     Date: {formData.reportDate} | Days: {formData.numberOfDays}
+                    {new Date(formData.reportDate) > new Date() && (
+                      <span style={{ marginLeft: '10px', color: '#155724', fontStyle: 'italic' }}>
+                        (Future Date ✓)
+                      </span>
+                    )}
                   </div>
                 </div>
                 
@@ -594,6 +644,7 @@ const LeaveApplication = () => {
                   <tr key={leave.id} style={{ borderBottom: '1px solid #dee2e6' }}>
                     <td style={{ padding: '0.75rem' }}>
                       {leave.report_date || leave.leaveDate || '-'}
+                      {new Date(leave.report_date || leave.leaveDate) > new Date() ? ' (Future)' : ''}
                     </td>
                     <td style={{ padding: '0.75rem' }}>
                       {leave.leaveTypeName || leave.leave_type || '-'}
@@ -646,9 +697,11 @@ const LeaveApplication = () => {
         <ul style={{ color: '#004085', margin: 0, paddingLeft: '1.5rem' }}>
           <li>All leave applications require manager approval</li>
           <li>You will receive notification once your leave is approved or rejected</li>
+          <li>You can apply for leaves today, tomorrow, or up to 6 months in advance</li>
           <li>Only one leave application is allowed per day</li>
           <li>Please ensure you have sufficient leave balance before applying</li>
           <li>For urgent leaves, please contact your manager directly</li>
+          <li>Future leaves can be cancelled before the start date</li>
         </ul>
       </div>
     </section>

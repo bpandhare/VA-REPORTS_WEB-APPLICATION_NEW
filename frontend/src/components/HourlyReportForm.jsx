@@ -135,33 +135,35 @@ function HourlyReportForm() {
   const [loadingProjects, setLoadingProjects] = useState(false)
 
   // Calculate total achieved from all hourly entries
-  useEffect(() => {
-    const calculateTotalAchieved = () => {
-      let total = ''
-      const allAchievedEntries = []
-      
-      formData.hourlyEntries.forEach(entry => {
-        if (entry.hourlyAchievedEntries) {
-          entry.hourlyAchievedEntries.forEach(achieved => {
-            if (achieved && achieved.trim()) {
-              allAchievedEntries.push(achieved.trim())
-            }
-          })
-        }
-      })
-      
-      if (allAchievedEntries.length > 0) {
-        total = allAchievedEntries
-          .map((achieved, index) => `Achieved ${index + 1}: ${achieved}`)
-          .join('\n')
+ // Calculate total achieved from all hourly entries
+useEffect(() => {
+  const calculateTotalAchieved = () => {
+    let total = ''
+    const allAchievedEntries = []
+    
+    formData.hourlyEntries.forEach(entry => {
+      if (entry.hourlyAchievedEntries) {
+        entry.hourlyAchievedEntries.forEach(achieved => {
+          if (achieved && achieved.trim()) {
+            allAchievedEntries.push(achieved.trim())
+          }
+        })
       }
-      
-      setTotalAchieved(total)
-      setFormData(prev => ({ ...prev, dailyTargetAchieved: total }))
+    })
+    
+    if (allAchievedEntries.length > 0) {
+      // Format without "Achieved X: " prefix for cleaner display
+      total = allAchievedEntries
+        .map((achieved, index) => `${index + 1}. ${achieved}`)
+        .join('\n')
     }
     
-    calculateTotalAchieved()
-  }, [formData.hourlyEntries])
+    setTotalAchieved(total)
+    setFormData(prev => ({ ...prev, dailyTargetAchieved: total }))
+  }
+  
+  calculateTotalAchieved()
+}, [formData.hourlyEntries])
 
   // Function to refresh existing reports
   const refreshExistingReports = async () => {
@@ -571,29 +573,29 @@ const fetchProjectDetails = async (projectId) => {
   }
 
   // Update achievement entry
-  const updateAchievedEntry = (sessionIndex, achievedIndex, value) => {
-    setFormData(prev => {
-      const updatedEntries = [...prev.hourlyEntries]
-      const session = { ...updatedEntries[sessionIndex] }
-      
-      // Ensure we have the array
-      if (!session.hourlyAchievedEntries) {
-        session.hourlyAchievedEntries = ['']
-      }
-      
-      // Update entry
-      session.hourlyAchievedEntries[achievedIndex] = value
-      
-      // Update hourlyAchieved field for backward compatibility
-      session.hourlyAchieved = session.hourlyAchievedEntries
-        .filter(entry => entry.trim())
-        .map((entry, idx) => `Achieved ${idx + 1}: ${entry}`)
-        .join('\n')
-      
-      updatedEntries[sessionIndex] = session
-      return { ...prev, hourlyEntries: updatedEntries }
-    })
-  }
+ // Update achievement entry
+const updateAchievedEntry = (sessionIndex, achievedIndex, value) => {
+  setFormData(prev => {
+    const updatedEntries = [...prev.hourlyEntries]
+    const session = { ...updatedEntries[sessionIndex] }
+    
+    // Ensure we have the array
+    if (!session.hourlyAchievedEntries) {
+      session.hourlyAchievedEntries = ['']
+    }
+    
+    // Update entry
+    session.hourlyAchievedEntries[achievedIndex] = value
+    
+    // Update hourlyAchieved field - store WITHOUT prefix for cleaner data
+    session.hourlyAchieved = session.hourlyAchievedEntries
+      .filter(entry => entry.trim())
+      .join('\n') // Just join with newline, no prefix
+    
+    updatedEntries[sessionIndex] = session
+    return { ...prev, hourlyEntries: updatedEntries }
+  })
+}
 
   // Remove achievement entry
   const removeAchievedEntry = (sessionIndex, achievedIndex) => {
@@ -762,7 +764,7 @@ const fetchProjectDetails = async (projectId) => {
     
     setSubmitting(true)
     setAlert(null)
-
+  
     try {
       const now = new Date()
       console.log('🕒 Current time for validation:', now.toLocaleTimeString())
@@ -771,13 +773,13 @@ const fetchProjectDetails = async (projectId) => {
       const currentActiveEntry = formData.hourlyEntries.find(entry => 
         isWithinEditingWindow(entry.startHour, entry.endHour, now)
       )
-
+  
       console.log('🔍 Found active entry:', currentActiveEntry)
       
       if (!currentActiveEntry) {
         throw new Error('No active session found. You can only submit reports during active sessions (or up to 30 minutes after).')
       }
-
+  
       // Only validate the current active session
       const entry = currentActiveEntry
       
@@ -816,41 +818,41 @@ const fetchProjectDetails = async (projectId) => {
       if (!hasActivity) {
         validationErrors.push('At least one Activity is required')
       }
-
+  
       console.log('❌ Validation errors:', validationErrors)
       
       if (validationErrors.length > 0) {
         throw new Error(`Validation errors:\n${validationErrors.join('\n')}`)
       }
-
+  
       const existingReport = existingReports.find(report => report.time_period === entry.timePeriod)
       if (existingReport) {
         throw new Error(`${entry.timePeriod}: Report already exists. Use Edit button to update.`)
       }
-
+  
       const entryErrors = validateHourlyEntry(entry)
       if (entryErrors.length > 0) {
         throw new Error(`${entry.timePeriod}: ${entryErrors.join(', ')}`)
       }
-
+  
       // Format activities with numbering
       const formattedActivities = entry.hourlyActivityEntries
         .filter(activity => activity.trim())
         .map((activity, idx) => `Activity ${idx + 1}: ${activity}`)
         .join('\n')
-
-      // Format achievements with numbering
+  
+      // Format achievements with numbering - Store JUST the achievement text
       const formattedAchievements = entry.hourlyAchievedEntries
         .filter(achieved => achieved.trim())
-        .map((achieved, idx) => `Achieved ${idx + 1}: ${achieved}`)
+        .map((achieved, idx) => achieved.trim()) // Just the achievement text, no prefix
         .join('\n')
-
+  
       // Format problems with numbering
       const formattedProblems = entry.problemFacedEntries
         .filter(problem => problem.trim())
         .map((problem, idx) => `Problem ${idx + 1}: ${problem}`)
         .join('\n')
-
+  
       // Create payload
       const payload = {
         // REQUIRED FIELDS ONLY
@@ -860,7 +862,7 @@ const fetchProjectDetails = async (projectId) => {
         dailyTarget: dailyTargetPlanned,
         hourlyActivity: formattedActivities,
         
-        // Add only essential optional fields
+        // Add achievements without prefix
         hourlyAchieved: formattedAchievements,
         problemFacedByEngineerHourly: formattedProblems,
         problemFaced: entry.problemFaced || 'No',
@@ -878,9 +880,9 @@ const fetchProjectDetails = async (projectId) => {
         employee_id: user?.employeeId || user?.id || '',
         employee_name: user?.name || user?.username || ''
       }
-
+  
       console.log('📤 PAYLOAD:', JSON.stringify(payload, null, 2))
-
+  
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -889,7 +891,7 @@ const fetchProjectDetails = async (projectId) => {
         },
         body: JSON.stringify(payload),
       })
-
+  
       console.log('🔍 Response status:', response.status, response.statusText)
       
       if (!response.ok) {
@@ -911,7 +913,7 @@ const fetchProjectDetails = async (projectId) => {
         }
         throw new Error(errorMessage)
       }
-
+  
       const result = await response.json()
       console.log('✅ Successfully saved hourly report:', result)
       
@@ -919,7 +921,7 @@ const fetchProjectDetails = async (projectId) => {
         type: 'success',
         message: `${entry.timePeriod} report saved successfully!`
       })
-
+  
       // Refresh existing reports
       await refreshExistingReports()
       
@@ -952,7 +954,6 @@ const fetchProjectDetails = async (projectId) => {
       setSubmitting(false)
     }
   }
-
   // Add this function to HourlyReportForm.js
  const fetchDailyTargetFromLocalStorage = () => {
     if (!user?.id) return '';
@@ -1619,84 +1620,85 @@ useEffect(() => {
                   </div>
 
                   {/* Achievements Section */}
-                  <div style={{ marginBottom: '2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                      <h5 style={{ color: '#092544', margin: 0 }}>
-                        Achievements
-                      </h5>
-                      {canEdit && (
-                        <button
-                          type="button"
-                          onClick={() => addAchievedEntry(sessionIndex)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.25rem',
-                            padding: '0.4rem 0.75rem',
-                            background: '#06c167',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem'
-                          }}
-                        >
-                          <span style={{ fontSize: '1rem' }}>+</span> Add Achievement
-                        </button>
-                      )}
-                    </div>
-                    
-                    {(entry.hourlyAchievedEntries || ['']).map((achieved, achievedIndex) => (
-                      <div key={achievedIndex} style={{ marginBottom: '1rem', position: 'relative' }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-                          <span style={{
-                            background: '#06c167',
-                            color: 'white',
-                            minWidth: '24px',
-                            height: '24px',
-                            borderRadius: '50%',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '0.75rem',
-                            marginTop: '0.5rem'
-                          }}>
-                            {achievedIndex + 1}
-                          </span>
-                          <div style={{ flex: 1 }}>
-                            <label>
-                              <span>Achievement {achievedIndex + 1}</span>
-                              <textarea
-                                rows={2}
-                                value={achieved}
-                                onChange={(e) => updateAchievedEntry(sessionIndex, achievedIndex, e.target.value)}
-                                placeholder={`Describe achievement ${achievedIndex + 1}...`}
-                                disabled={!canEdit}
-                              />
-                            </label>
-                          </div>
-                          {(entry.hourlyAchievedEntries || ['']).length > 1 && canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => removeAchievedEntry(sessionIndex, achievedIndex)}
-                              style={{
-                                padding: '0.25rem 0.5rem',
-                                background: '#ff7a7a',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                cursor: 'pointer',
-                                fontSize: '0.75rem',
-                                marginTop: '0.5rem'
-                              }}
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  {/* Achievements Section */}
+<div style={{ marginBottom: '2rem' }}>
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+    <h5 style={{ color: '#092544', margin: 0 }}>
+      Achievements
+    </h5>
+    {canEdit && (
+      <button
+        type="button"
+        onClick={() => addAchievedEntry(sessionIndex)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.25rem',
+          padding: '0.4rem 0.75rem',
+          background: '#06c167',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          fontSize: '0.85rem'
+        }}
+      >
+        <span style={{ fontSize: '1rem' }}>+</span> Add Achievement
+      </button>
+    )}
+  </div>
+  
+  {(entry.hourlyAchievedEntries || ['']).map((achieved, achievedIndex) => (
+    <div key={achievedIndex} style={{ marginBottom: '1rem', position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+        <span style={{
+          background: '#06c167',
+          color: 'white',
+          minWidth: '24px',
+          height: '24px',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.75rem',
+          marginTop: '0.5rem'
+        }}>
+          {achievedIndex + 1}
+        </span>
+        <div style={{ flex: 1 }}>
+          <label>
+            <span>Achievement {achievedIndex + 1}</span>
+            <textarea
+              rows={2}
+              value={achieved}
+              onChange={(e) => updateAchievedEntry(sessionIndex, achievedIndex, e.target.value)}
+              placeholder={`Describe achievement ${achievedIndex + 1}...`}
+              disabled={!canEdit}
+            />
+          </label>
+        </div>
+        {(entry.hourlyAchievedEntries || ['']).length > 1 && canEdit && (
+          <button
+            type="button"
+            onClick={() => removeAchievedEntry(sessionIndex, achievedIndex)}
+            style={{
+              padding: '0.25rem 0.5rem',
+              background: '#ff7a7a',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              marginTop: '0.5rem'
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+    </div>
+  ))}
+</div>
 
                   {/* Problem Faced Section */}
                   <div style={{ marginBottom: '2rem' }}>

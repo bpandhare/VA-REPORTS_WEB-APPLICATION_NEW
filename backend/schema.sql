@@ -602,3 +602,18 @@ ALTER TABLE activities
 ADD CONSTRAINT fk_activities_user_code
 FOREIGN KEY (user_code) REFERENCES users(user_code)
 ON DELETE SET NULL;
+
+ALTER TABLE leaves ADD COLUMN daily_report_submitted BOOLEAN DEFAULT FALSE;
+ALTER TABLE leaves ADD COLUMN marked_as_present BOOLEAN DEFAULT FALSE;
+
+CREATE TABLE attendance_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  date DATE NOT NULL,
+  status VARCHAR(50) NOT NULL,
+  notes TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_user_date (user_id, date)
+);

@@ -94,6 +94,50 @@ async function fixMissingColumns() {
   }
 }
 
+// Get all hourly reports for a specific date (for managers)
+// In the /all/:date endpoint, around line 74:
+router.get('/all/:date', verifyToken, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const userRole = req.user.role;
+    
+    // Only managers and team leaders can access all reports
+    // Make it case-insensitive
+    const userRoleLower = (userRole || '').toLowerCase();
+    if (!userRoleLower.includes('manager') && !userRoleLower.includes('team leader')) {
+      return res.status(403).json({ 
+        success: false,
+        message: 'Access denied. Only managers can view all hourly reports.' 
+      });
+    }
+    
+    const [reports] = await pool.execute(`
+      SELECT 
+        hr.*,
+        u.username as employeeName,
+        u.employee_id as employeeId,
+        u.role as employeeRole
+      FROM hourly_reports hr
+      LEFT JOIN users u ON hr.user_id = u.id
+      WHERE hr.report_date = ?
+      ORDER BY hr.time_period, hr.created_at ASC
+    `, [date]);
+    
+    res.json({
+      success: true,
+      date: date,
+      reports: reports,
+      count: reports.length
+    });
+    
+  } catch (error) {
+    console.error('Failed to fetch all hourly reports:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Unable to fetch hourly reports' 
+    });
+  }
+});
 // GET route to fetch daily target reports for auto-filling hourly reports
 router.get('/daily-targets/:date', verifyToken, async (req, res) => {
   try {
@@ -586,12 +630,10 @@ router.get('/manager/employees', verifyToken, async (req, res) => {
     // Get manager's ID from token
     const managerId = req.user.id;
     const role = (req.user.role || '').toLowerCase();
-    
-    // Check if user is a manager
-    const isManagerish = role.includes('manager') || role.includes('team leader') || role.includes('group leader')
-    if (!isManagerish) {
-      return res.status(403).json({ message: 'Access denied. Manager privileges required.' })
-    }
+const isManagerish = role.includes('manager') || role.includes('team leader') || role.includes('group leader');
+if (!isManagerish) {
+  return res.status(403).json({ message: 'Access denied. Manager privileges required.' });
+}
     
     // Fetch employees under this manager
     // First, let's check the structure of the users table

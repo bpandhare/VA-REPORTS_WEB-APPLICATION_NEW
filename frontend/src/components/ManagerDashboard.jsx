@@ -45,9 +45,11 @@ function ManagerDashboard() {
     try {
       setLoading(true);
       setError('');
-
-      // Fetch data in sequence to avoid race conditions
-      await fetchAllUsers(); // First fetch users
+  
+      // FIRST: Fetch all users (this provides the employee mapping)
+      await fetchAllUsers();
+      
+      // THEN: Fetch other data that depends on employee data
       await Promise.all([
         fetchHourlyReports(),
         fetchPendingLeaves(),
@@ -62,67 +64,177 @@ function ManagerDashboard() {
     }
   };
 
-  // UPDATED: Enhanced fetchHourlyReports to include employee names
   const fetchHourlyReports = async () => {
     try {
-      const response = await fetch(`${BASE_URL}/api/hourly-report/${selectedDate}`, {
+      console.log('📊 [HOURLY REPORTS] Fetching all hourly reports for:', selectedDate);
+      
+      if (!token) {
+        console.error('❌ No token available');
+        setActivities([]);
+        return;
+      }
+      
+      // First try the manager endpoint
+      const response = await fetch(`${BASE_URL}/api/hourly-report/all/${selectedDate}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
-      if (!response.ok) {
-        console.warn(`Hourly reports fetch failed: ${response.status}`);
-        setActivities([]);
-        return;
-      }
+      console.log('Response status:', response.status);
 
-      const data = await response.json();
-      
-      // Process activities to include employee names
-      let activitiesData = [];
-      if (Array.isArray(data)) {
-        activitiesData = data;
-      } else if (data.activities && Array.isArray(data.activities)) {
-        activitiesData = data.activities;
-      } else {
-        setActivities([]);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Hourly reports data received:', data);
+        processHourlyReportsData(data);
         return;
       }
       
-      // Enhance activities with employee names using available employees data
-      const enhancedActivities = activitiesData.map(activity => {
-        let employeeName = 'Unknown';
+      // If 403, try individual endpoint
+      if (response.status === 403) {
+        console.log('🔄 Access denied to manager endpoint, trying individual endpoint...');
+        const individualResponse = await fetch(`${BASE_URL}/api/hourly-report/${selectedDate}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
         
-        // Try to find employee by user_id
-        const emp = employees.find(e => 
-          e.id === activity.user_id || 
-          e._id === activity.user_id ||
-          e.employeeId === activity.employee_id
-        );
-        
-        if (emp) {
-          employeeName = emp.username;
-        } else if (activity.employeeName) {
-          employeeName = activity.employeeName;
+        if (individualResponse.ok) {
+          const individualData = await individualResponse.json();
+          console.log('✅ Got individual hourly reports');
+          
+          // Convert to array format
+          const activitiesArray = Array.isArray(individualData) ? individualData : [];
+          setActivities(activitiesArray);
+          if (activitiesArray.length > 0) {
+            calculateAttendance(activitiesArray);
+          }
+          return;
         }
-        
-        return {
-          ...activity,
-          employeeName: employeeName
-        };
-      });
+      }
       
-      setActivities(enhancedActivities);
-      calculateAttendance(enhancedActivities);
+      // If we reach here, both endpoints failed
+      console.log('🔄 Creating activities from daily reports...');
+      createActivitiesFromDailyReports();
+      
     } catch (error) {
-      console.error('Error fetching hourly reports:', error);
+      console.error('❌ Error in fetchHourlyReports:', error);
+      console.error('❌ Error details:', error.message, error.stack);
+      
+      // Fallback to empty array to prevent further errors
       setActivities([]);
     }
   };
 
-  // UPDATED: Enhanced fetchAllUsers with better normalization
+  const processHourlyReportsData = (data) => {
+    try {
+      console.log('📊 Processing hourly reports data');
+      
+      let activitiesData = [];
+      
+      // Handle different response formats
+      if (data && data.success && Array.isArray(data.reports)) {
+        activitiesData = data.reports;
+      } else if (Array.isArray(data)) {
+        activitiesData = data;
+      } else if (data && data.reports && Array.isArray(data.reports)) {
+        activitiesData = data.reports;
+      } else {
+        console.warn('⚠️ No activities data found in response:', data);
+        setActivities([]);
+        return;
+      }
+      
+      console.log(`✅ Found ${activitiesData.length} activities`);
+      
+      // Safely map activities
+      const enhancedActivities = activitiesData.map((activity, index) => {
+        try {
+          // Safely extract employee name
+          let employeeName = 'Unknown';
+          if (activity.employeeName) employeeName = activity.employeeName;
+          else if (activity.username) employeeName = activity.username;
+          else if (activity.engg_name) employeeName = activity.engg_name;
+          
+          // Safely extract employee ID
+          let employeeId = 'N/A';
+          if (activity.employeeId) employeeId = activity.employeeId;
+          else if (activity.employee_id) employeeId = activity.employee_id;
+          
+          return {
+            id: activity.id || activity._id || `temp-${index}-${Date.now()}`,
+            user_id: activity.user_id || activity.userId || 'unknown',
+            employee_id: employeeId,
+            employeeName: employeeName,
+            time_period: activity.time_period || activity.report_time || 'N/A',
+            project_name: activity.project_name || activity.project || 'N/A',
+            hourly_activity: activity.hourly_activity || activity.activity_description || 'No activity',
+            problem_faced: activity.problem_faced_by_engineer_hourly || activity.problem_faced || '',
+            problem_resolved_or_not: activity.problem_resolved_or_not || activity.problem_resolved || 'no',
+            created_at: activity.created_at || new Date().toISOString(),
+          };
+        } catch (itemError) {
+          console.error('❌ Error processing activity item:', itemError);
+          return null;
+        }
+      }).filter(item => item !== null); // Remove null items
+      
+      console.log('✅ Processed activities:', enhancedActivities.length);
+      setActivities(enhancedActivities);
+      
+      if (enhancedActivities.length > 0) {
+        calculateAttendance(enhancedActivities);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in processHourlyReportsData:', error);
+      setActivities([]);
+    }
+  };
+
+  const createActivitiesFromDailyReports = () => {
+    try {
+      console.log('📊 Creating activities from daily reports...');
+      
+      if (!dailyReports || !Array.isArray(dailyReports)) {
+        console.log('❌ No daily reports available');
+        setActivities([]);
+        return;
+      }
+      
+      const activitiesFromDailyReports = dailyReports
+        .filter(report => report && report.location_type !== 'leave')
+        .map(report => ({
+          id: report.id || `daily-${report.user_id}`,
+          user_id: report.user_id || 'unknown',
+          employeeName: report.employee_name || 'Unknown',
+          employeeId: report.employee_code || 'N/A',
+          time_period: report.in_time && report.out_time ? 
+            `${report.in_time} - ${report.out_time}` : 'Full Day',
+          project_name: report.project_no || 'Daily Report',
+          hourly_activity: report.daily_target_achieved || 'Work completed',
+          problem_faced: report.problem_faced || '',
+          problem_resolved_or_not: report.problem_resolved === 'yes' ? 'yes' : 'no',
+          created_at: report.created_at || new Date().toISOString(),
+          isDailyReport: true
+        }));
+      
+      console.log(`✅ Created ${activitiesFromDailyReports.length} activities from daily reports`);
+      
+      setActivities(activitiesFromDailyReports);
+      
+      if (activitiesFromDailyReports.length > 0) {
+        calculateAttendance(activitiesFromDailyReports);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in createActivitiesFromDailyReports:', error);
+      setActivities([]);
+    }
+  };
+
   const fetchAllUsers = async () => {
     try {
       const response = await fetch(`${BASE_URL}/api/auth/users`, {
@@ -299,97 +411,109 @@ function ManagerDashboard() {
     }
   };
 
-  const simulateConsoleLogs = () => {
-    const logs = [
-      { id: 1, message: 'Dashboard initialized', type: 'success' },
-      { id: 2, message: `Loading data for date: ${selectedDate}`, type: 'info' },
-      { id: 3, message: `Found ${employees.length} employees`, type: 'info' },
-      { id: 4, message: `Found ${activities.length} activities`, type: 'success' },
-      { id: 5, message: `Found ${momRecords.length} MoM records`, type: 'success' },
-      { id: 6, message: 'Dashboard ready', type: 'success' }
-    ];
-    setConsoleLogs(logs);
-  };
-
-  const calculateAttendance = (reports) => {
-    const userReports = {};
-    
-    reports.forEach(report => {
-      const userId = report.user_id || report.userId;
-      if (!userId) return;
-      
-      if (!userReports[userId]) {
-        userReports[userId] = {
-          reports: [],
-          totalReports: 0,
-          firstReport: null,
-          lastReport: null,
-          resolvedIssues: 0,
-          projects: new Set(),
-          totalHours: 0,
-          momCount: 0,
-          employeeName: report.employeeName || 'Unknown'
-        };
-      }
-      
-      userReports[userId].reports.push(report);
-      userReports[userId].totalReports++;
-      
-      if (report.problem_resolved_or_not === 'yes') {
-        userReports[userId].resolvedIssues++;
-      }
-      
-      if (report.project_name) {
-        userReports[userId].projects.add(report.project_name);
-      }
-      
-      userReports[userId].totalHours++;
-      
-      if (report.time_period) {
-        if (!userReports[userId].firstReport || report.time_period < userReports[userId].firstReport) {
-          userReports[userId].firstReport = report.time_period;
-        }
-        if (!userReports[userId].lastReport || report.time_period > userReports[userId].lastReport) {
-          userReports[userId].lastReport = report.time_period;
-        }
-      }
-    });
-    
-    // Add MoM counts to each employee
-    Object.keys(userReports).forEach(userId => {
-      userReports[userId].projects = Array.from(userReports[userId].projects);
-      userReports[userId].momCount = employeeMomRecords[userId] ? employeeMomRecords[userId].length : 0;
-    });
-    
-    setAttendanceSummary(userReports);
-  };
-
   const isEmployeePresent = (userId) => {
-    return attendanceSummary[userId] && attendanceSummary[userId].totalReports > 0;
+    // Check hourly reports
+    const hasHourlyReports = attendanceSummary[userId] && attendanceSummary[userId].totalReports > 0;
+    
+    // Check daily target reports
+    const hasDailyReport = dailyReports.some(report => 
+      report.user_id === userId || 
+      report.employee_code === userId ||
+      report.employee_id === userId
+    );
+    
+    // Employee is present if they have either hourly reports OR daily target report
+    return hasHourlyReports || hasDailyReport;
+  };
+
+  const calculateAttendance = (hourlyReports) => {
+    try {
+      console.log('📊 Calculating attendance from', hourlyReports.length, 'reports');
+      
+      if (!hourlyReports || !Array.isArray(hourlyReports)) {
+        console.log('❌ No valid reports for attendance calculation');
+        setAttendanceSummary({});
+        return;
+      }
+      
+      const userReports = {};
+      
+      hourlyReports.forEach(report => {
+        try {
+          const userId = report.user_id || report.userId;
+          if (!userId) return;
+          
+          if (!userReports[userId]) {
+            userReports[userId] = {
+              reports: [],
+              totalReports: 0,
+              firstReport: null,
+              lastReport: null,
+              resolvedIssues: 0,
+              projects: new Set(),
+              totalHours: 0,
+              employeeName: report.employeeName || 'Unknown'
+            };
+          }
+          
+          userReports[userId].reports.push(report);
+          userReports[userId].totalReports++;
+          
+          if (report.problem_resolved_or_not === 'yes') {
+            userReports[userId].resolvedIssues++;
+          }
+          
+          if (report.project_name) {
+            userReports[userId].projects.add(report.project_name);
+          }
+          
+          userReports[userId].totalHours++;
+          
+        } catch (reportError) {
+          console.error('❌ Error processing report for attendance:', reportError);
+        }
+      });
+      
+      // Convert Set to Array for projects
+      Object.keys(userReports).forEach(userId => {
+        try {
+          userReports[userId].projects = Array.from(userReports[userId].projects);
+        } catch (error) {
+          console.error('❌ Error converting projects:', error);
+          userReports[userId].projects = [];
+        }
+      });
+      
+      setAttendanceSummary(userReports);
+      
+    } catch (error) {
+      console.error('❌ Error in calculateAttendance:', error);
+      setAttendanceSummary({});
+    }
   };
 
   const getEmployeeStats = (userId) => {
-    return attendanceSummary[userId] || { 
+    const baseStats = attendanceSummary[userId] || { 
       totalReports: 0, 
       resolvedIssues: 0, 
       projects: [], 
       totalHours: 0,
       firstReport: null,
       lastReport: null,
-      momCount: 0,
       employeeName: 'Unknown'
     };
-  };
-
-  const getProjectList = () => {
-    const projects = new Set();
-    employees.forEach(emp => {
-      const stats = getEmployeeStats(emp.id);
-      stats.projects.forEach(project => {
-        projects.add(project);
-      });
-    });
-    return Array.from(projects);
+    
+    // Check for daily report separately
+    const hasDailyReport = dailyReports.some(report => 
+      report.user_id === userId || 
+      report.employee_code === userId ||
+      report.employee_id === userId
+    );
+    
+    return {
+      ...baseStats,
+      hasDailyReport: hasDailyReport || baseStats.hasDailyReport
+    };
   };
 
   const filteredEmployees = employees.filter(emp => {
@@ -424,17 +548,86 @@ function ManagerDashboard() {
     });
   };
 
-  const formatTime = (timePeriod) => {
-    if (!timePeriod) return '';
-    const timeMatch = timePeriod.match(/(\d{1,2}):(\d{2})/);
-    if (timeMatch) {
-      const hour = parseInt(timeMatch[1]);
-      const minute = timeMatch[2];
-      const period = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour > 12 ? hour - 12 : hour;
-      return `${displayHour}:${minute} ${period}`;
+  const formatTime = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString('en-IN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    } catch {
+      // If it's already a time string like "09:00"
+      if (typeof timestamp === 'string' && timestamp.includes(':')) {
+        return timestamp;
+      }
+      return 'N/A';
     }
-    return timePeriod;
+  };
+
+  const getEmployeeNameFromActivity = (activity) => {
+    // First check if activity already has employeeName
+    if (activity.employeeName && activity.employeeName !== 'Unknown') {
+      return activity.employeeName;
+    }
+    
+    // Try to find in employees array using multiple strategies
+    if (employees.length > 0) {
+      const foundEmployee = employees.find(emp => {
+        return (
+          emp.id === activity.user_id ||
+          emp._id === activity.user_id ||
+          emp.employeeId === activity.employee_id ||
+          emp.id === activity.employee_id ||
+          emp.user_id === activity.user_id ||
+          (emp.username && activity.employeeName && emp.username === activity.employeeName)
+        );
+      });
+      
+      if (foundEmployee) {
+        return foundEmployee.username;
+      }
+    }
+    
+    // If no match found, use whatever is available
+    return activity.employeeName || activity.user_name || activity.username || 'Unknown';
+  };
+
+  const getEmployeeIdFromActivity = (activity) => {
+    // First check activity for employee_id
+    if (activity.employee_id) {
+      return activity.employee_id;
+    }
+    
+    // Try to find in employees array
+    if (employees.length > 0) {
+      const foundEmployee = employees.find(emp => {
+        return (
+          emp.id === activity.user_id ||
+          emp._id === activity.user_id ||
+          emp.employeeId === activity.employee_id ||
+          emp.id === activity.employee_id ||
+          emp.user_id === activity.user_id
+        );
+      });
+      
+      if (foundEmployee) {
+        return foundEmployee.employeeId || foundEmployee.id || 'N/A';
+      }
+    }
+    
+    return activity.user_id || 'N/A';
+  };
+
+  // Helper function to get color for avatar based on initial
+  const getColorForInitial = (initial) => {
+    const colors = [
+      '#4CAF50', '#2196F3', '#FF9800', '#9C27B0', 
+      '#FF5722', '#673AB7', '#3F51B5', '#009688'
+    ];
+    const index = initial.charCodeAt(0) % colors.length;
+    return colors[index];
   };
 
   const goToPreviousDay = () => {
@@ -459,15 +652,6 @@ function ManagerDashboard() {
   const viewMomDetails = (mom) => {
     setSelectedMom(mom);
     setShowMomModal(true);
-  };
-
-  const downloadMomPdf = async (mom) => {
-    try {
-      alert('PDF generation would start here');
-    } catch (err) {
-      console.error('Error generating PDF:', err);
-      alert('Failed to generate PDF');
-    }
   };
 
   const downloadMomTxt = (mom) => {
@@ -507,67 +691,6 @@ Man Hours: ${mom.man_hours}
 
   const monitorEmployee = (employeeId) => {
     alert(`Monitoring employee: ${employeeId}`);
-  };
-
-  const testMomEndpoint = async () => {
-    try {
-      console.log('Testing MoM endpoint...');
-      const response = await fetch(`${BASE_URL}/api/employee-activity/mom-records`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      console.log('Test response:', response.status, response.statusText);
-      const data = await response.json();
-      console.log('Test data:', data);
-    } catch (error) {
-      console.error('Test error:', error);
-    }
-  };
-
-  // Helper function to get employee name from activities data
-  const getEmployeeNameFromActivity = (activity) => {
-    // First try to find by user_id
-    if (activity.user_id) {
-      const emp = employees.find(e => 
-        e.id === activity.user_id || 
-        e._id === activity.user_id
-      );
-      if (emp) return emp.username;
-    }
-    
-    // Try by employee_id
-    if (activity.employee_id) {
-      const emp = employees.find(e => 
-        e.employeeId === activity.employee_id
-      );
-      if (emp) return emp.username;
-    }
-    
-    // Use the stored employeeName from enhanced data
-    if (activity.employeeName) {
-      return activity.employeeName;
-    }
-    
-    return 'Unknown';
-  };
-
-  // Helper function to get employee ID from activities data
-  const getEmployeeIdFromActivity = (activity) => {
-    if (activity.user_id) {
-      const emp = employees.find(e => 
-        e.id === activity.user_id || 
-        e._id === activity.user_id
-      );
-      if (emp) return emp.employeeId;
-    }
-    
-    if (activity.employee_id) {
-      return activity.employee_id;
-    }
-    
-    return 'N/A';
   };
 
   if (loading) {
@@ -634,12 +757,6 @@ Man Hours: ${mom.man_hours}
           Employees ({employees.length})
         </button>
         <button 
-          className={`tab-btn ${activeTab === 'mom' ? 'active' : ''}`}
-          onClick={() => setActiveTab('mom')}
-        >
-          MoM Records ({momRecords.length})
-        </button>
-        <button 
           className={`tab-btn ${activeTab === 'activities' ? 'active' : ''}`}
           onClick={() => setActiveTab('activities')}
         >
@@ -656,13 +773,15 @@ Man Hours: ${mom.man_hours}
       {/* Overview Tab */}
       {activeTab === 'overview' && (
         <>
-          {/* Reports Section */}
           <div className="reports-section">
             <h2>REPORTS</h2>
             <div className="reports-grid">
               <div className="report-card">
                 <h3>All Employees - Daily Status</h3>
-                <p>Showing all {employees.length} employees • {Object.keys(attendanceSummary).length} present today</p>
+                <p>Showing all {employees.length} employees • 
+                  {employees.filter(emp => isEmployeePresent(emp.id)).length} present today
+                  ({dailyReports.length} daily reports)
+                </p>
                 <button 
                   className="btn-view-details"
                   onClick={() => setActiveTab('employees')}
@@ -670,31 +789,9 @@ Man Hours: ${mom.man_hours}
                   View Details
                 </button>
               </div>
-              <div className="report-card">
-                <h3>Minutes of Meeting (MoM)</h3>
-                <p>{momStats.totalMoms} MoMs created today</p>
-                <p>{momStats.uniqueCustomersCount} unique customers</p>
-                <button 
-                  className="btn-view-moms"
-                  onClick={() => setActiveTab('mom')}
-                >
-                  View MoMs
-                </button>
-              </div>
-              <div className="report-card">
-                <h3>Hourly Activities</h3>
-                <p>{activities.length} hourly reports submitted</p>
-                <button 
-                  className="btn-view-activities"
-                  onClick={() => setActiveTab('activities')}
-                >
-                  View Activities
-                </button>
-              </div>
             </div>
           </div>
 
-          {/* Quick Stats */}
           <div className="quick-stats">
             <div className="stat-card">
               <h4>Total Employees</h4>
@@ -702,141 +799,15 @@ Man Hours: ${mom.man_hours}
             </div>
             <div className="stat-card">
               <h4>Present Today</h4>
-              <p className="stat-number">{Object.keys(attendanceSummary).length}</p>
+              <p className="stat-number">
+                {employees.filter(emp => isEmployeePresent(emp.id)).length}
+              </p>
+              <small>
+                ({activities.length} hourly, {dailyReports.length} daily)
+              </small>
             </div>
-            <div className="stat-card">
-              <h4>Total Reports</h4>
-              <p className="stat-number">{activities.length}</p>
-            </div>
-            <div className="stat-card">
-              <h4>Total MoMs</h4>
-              <p className="stat-number">{momStats.totalMoms}</p>
-            </div>
-          </div>
-
-          {/* Recent MoMs */}
-          <div className="recent-section">
-            <h3>Recent Minutes of Meeting</h3>
-            {momLoading ? (
-              <p>Loading MoMs...</p>
-            ) : momRecords.length === 0 ? (
-              <p>No MoM records found for today.</p>
-            ) : (
-              <div className="recent-moms">
-                {momRecords.slice(0, 5).map((mom, index) => (
-                  <div key={mom.id || index} className="mom-preview-card">
-                    <div className="mom-preview-header">
-                      <h4>{mom.customer_name || 'Unnamed Customer'}</h4>
-                      <span className="mom-date">{mom.mom_date || 'No date'}</span>
-                    </div>
-                    <div className="mom-preview-details">
-                      <p><strong>Engineer:</strong> {mom.engg_name || mom.user_name || 'Unknown'}</p>
-                      <p><strong>Project:</strong> {mom.project_name || 'N/A'}</p>
-                      <p><strong>Location:</strong> {mom.site_location ? (mom.site_location.length > 50 ? `${mom.site_location.substring(0, 50)}...` : mom.site_location) : 'N/A'}</p>
-                    </div>
-                    <div className="mom-preview-actions">
-                      <button onClick={() => viewMomDetails(mom)}>View</button>
-                      <button onClick={() => downloadMomTxt(mom)}>Download</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </>
-      )}
-
-      {/* MoM Records Tab */}
-      {activeTab === 'mom' && (
-        <div className="mom-section">
-          <div className="mom-header">
-            <h2>Minutes of Meeting Records</h2>
-            <div className="mom-header-info">
-              <p>Showing MoMs for: {formatDateDisplay(selectedDate)}</p>
-              <div className="mom-stats-badge">
-                <span>Total: {momStats.totalMoms}</span>
-                <span>Customers: {momStats.uniqueCustomersCount}</span>
-                <span>Engineers: {momStats.uniqueEngineersCount}</span>
-                <span>Overtime: {momStats.overtimeCount}</span>
-              </div>
-            </div>
-          </div>
-          
-          {momLoading ? (
-            <div className="loading-moms">
-              <div className="spinner-small"></div>
-              <p>Loading MoM records...</p>
-            </div>
-          ) : momRecords.length === 0 ? (
-            <div className="no-moms">
-              <p>No MoM records found for this date.</p>
-              <button onClick={fetchMomRecords} className="btn-retry">Retry</button>
-            </div>
-          ) : (
-            <>
-              <div className="mom-table-container">
-                <table className="mom-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Customer</th>
-                      <th>Engineer</th>
-                      <th>Project</th>
-                      <th>Site Location</th>
-                      <th>Man Hours</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {momRecords.map((mom, index) => (
-                      <tr key={mom.id || index}>
-                        <td>{mom.mom_date || new Date(mom.created_at).toLocaleDateString()}</td>
-                        <td>
-                          <strong>{mom.customer_name || 'N/A'}</strong>
-                          {mom.customer_person && <div className="small-text">Contact: {mom.customer_person}</div>}
-                        </td>
-                        <td>{mom.engg_name || mom.user_name || 'N/A'}</td>
-                        <td>
-                          {mom.project_name || 'N/A'}
-                          {mom.project_no && <div className="small-text">#{mom.project_no}</div>}
-                        </td>
-                        <td className="location-cell">
-                          {mom.site_location ? 
-                            (mom.site_location.length > 30 ? 
-                              `${mom.site_location.substring(0, 30)}...` : 
-                              mom.site_location) : 
-                            'N/A'}
-                        </td>
-                        <td>
-                          <span className={`hours-badge ${mom.man_hours_more_than_9 === 'Yes' ? 'overtime' : 'normal'}`}>
-                            {mom.man_hours || 'N/A'}
-                            {mom.man_hours_more_than_9 === 'Yes' && <span className="overtime-indicator">+</span>}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="mom-actions">
-                            <button 
-                              onClick={() => viewMomDetails(mom)}
-                              className="btn-view"
-                            >
-                              View
-                            </button>
-                            <button 
-                              onClick={() => downloadMomTxt(mom)}
-                              className="btn-download"
-                            >
-                              TXT
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </div>
       )}
 
       {/* Employees Tab */}
@@ -879,22 +850,23 @@ Man Hours: ${mom.man_hours}
                       <p className="employee-role">{emp.role}</p>
                       <span className={`status-badge-large ${isPresent ? 'present' : 'absent'}`}>
                         {isPresent ? 'PRESENT TODAY' : 'ABSENT TODAY'}
+                        {stats.hasDailyReport && !stats.totalReports && (
+                          <span className="daily-report-indicator"> (Daily Report)</span>
+                        )}
                       </span>
                     </div>
                   </div>
                   
                   <div className="employee-stats">
                     <div className="stat-item">
-                      <span className="stat-label">Reports</span>
+                      <span className="stat-label">Hourly Reports</span>
                       <span className="stat-value">{stats.totalReports}</span>
                     </div>
                     <div className="stat-item">
-                      <span className="stat-label">Resolved</span>
-                      <span className="stat-value">{stats.resolvedIssues}</span>
-                    </div>
-                    <div className="stat-item">
-                      <span className="stat-label">MoMs</span>
-                      <span className="stat-value">{stats.momCount}</span>
+                      <span className="stat-label">Daily Reports</span>
+                      <span className="stat-value">
+                        {stats.hasDailyReport ? '✓' : '✗'}
+                      </span>
                     </div>
                   </div>
                   
@@ -913,66 +885,197 @@ Man Hours: ${mom.man_hours}
         </div>
       )}
 
-      {/* Activities Tab - FIXED VERSION */}
+      {/* Activities Tab */}
       {activeTab === 'activities' && (
         <div className="activities-section">
-          <h2>Hourly Activities Report</h2>
-          <p>Date: {formatDateDisplay(selectedDate)} • Total Reports: {activities.length}</p>
-          
-          <div className="activities-table-container">
-            <table className="activities-table">
-              <thead>
-                <tr>
-                  <th>Employee</th>
-                  <th>Time</th>
-                  <th>Project</th>
-                  <th>Activity</th>
-                  <th>Problem Resolved</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activities.length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="no-data">
-                      No activities found for this date.
-                    </td>
-                  </tr>
-                ) : (
-                  activities.map((activity, index) => {
-                    const employeeName = getEmployeeNameFromActivity(activity);
-                    const employeeId = getEmployeeIdFromActivity(activity);
-                    const employeeInitial = employeeName.charAt(0);
-                    
-                    return (
-                      <tr key={index}>
-                        <td>
-                          <div className="activity-employee">
-                            <div className="activity-avatar">
-                              {employeeInitial}
-                            </div>
-                            <div>
-                              <div className="activity-name">{employeeName}</div>
-                              <div className="activity-id">{employeeId}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>{activity.time_period || 'N/A'}</td>
-                        <td>{activity.project_name || 'N/A'}</td>
-                        <td className="activity-description">
-                          {activity.hourly_activity || activity.daily_target_achieved || 'N/A'}
-                        </td>
-                        <td>
-                          <span className={`resolved-badge ${activity.problem_resolved_or_not === 'yes' ? 'resolved' : 'pending'}`}>
-                            {activity.problem_resolved_or_not === 'yes' ? 'Yes' : 'No'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          <div className="activities-header">
+            <h2>Hourly Activities Report - All Employees</h2>
+            <div className="activities-stats">
+              <p>Date: {formatDateDisplay(selectedDate)}</p>
+              <div className="stats-badges">
+                <span className="stat-badge">Total Reports: {activities.length}</span>
+                <span className="stat-badge">Unique Employees: {[...new Set(activities.map(a => a.employeeName))].length}</span>
+                <span className="stat-badge">Resolved Issues: {activities.filter(a => a.problem_resolved_or_not === 'yes').length}</span>
+              </div>
+            </div>
           </div>
+          
+          <div className="activities-filters">
+            <div className="filter-group">
+              <input
+                type="text"
+                placeholder="Search by employee or activity..."
+                className="filter-input"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <button 
+                className="btn-refresh"
+                onClick={fetchHourlyReports}
+              >
+                ↻ Refresh
+              </button>
+            </div>
+          </div>
+          
+          {(() => {
+            const filteredActivities = activities.filter(activity => {
+              const searchLower = searchTerm.toLowerCase();
+              return (
+                searchTerm === '' ||
+                activity.employeeName?.toLowerCase().includes(searchLower) ||
+                activity.hourly_activity?.toLowerCase().includes(searchLower) ||
+                activity.project_name?.toLowerCase().includes(searchLower) ||
+                activity.problem_faced?.toLowerCase().includes(searchLower)
+              );
+            });
+            
+            if (filteredActivities.length === 0) {
+              return (
+                <div className="no-activities">
+                  <div className="no-data-icon">📊</div>
+                  <p>
+                    {searchTerm ? 
+                      `No activities found matching "${searchTerm}"` : 
+                      'No hourly activities found for this date.'
+                    }
+                  </p>
+                  <div className="action-buttons">
+                    {!searchTerm && (
+                      <button 
+                        onClick={fetchHourlyReports}
+                        className="btn-retry"
+                      >
+                        Retry Fetching
+                      </button>
+                    )}
+                    {searchTerm && (
+                      <button 
+                        onClick={() => setSearchTerm('')}
+                        className="btn-clear"
+                      >
+                        Clear Search
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+            
+            return (
+              <>
+                <div className="activities-table-container">
+                  <table className="activities-table">
+                    <thead>
+                      <tr>
+                        <th>Employee</th>
+                        <th>Time</th>
+                        <th>Project</th>
+                        <th>Activity Description</th>
+                        <th>Problem</th>
+                        <th>Resolved</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredActivities.map((activity, index) => {
+                        const employeeName = getEmployeeNameFromActivity(activity);
+                        const employeeId = getEmployeeIdFromActivity(activity);
+                        const employeeInitial = employeeName ? employeeName.charAt(0).toUpperCase() : 'U';
+                        const isResolved = activity.problem_resolved_or_not === 'yes';
+                        
+                        return (
+                          <tr key={activity.id || index}>
+                            <td>
+                              <div className="activity-employee">
+                                <div 
+                                  className="activity-avatar" 
+                                  style={{ backgroundColor: getColorForInitial(employeeInitial) }}
+                                >
+                                  {employeeInitial}
+                                </div>
+                                <div className="employee-details">
+                                  <div className="activity-name">{employeeName}</div>
+                                  <div className="activity-id">ID: {employeeId}</div>
+                                  <div className="activity-time">
+                                    <small>Reported: {formatTime(activity.created_at)}</small>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="time-cell">
+                                <span className="time-period">{activity.time_period}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="project-cell">
+                                <strong>{activity.project_name}</strong>
+                                {activity.project_no && <div className="project-no">#{activity.project_no}</div>}
+                              </div>
+                            </td>
+                            <td className="activity-description">
+                              <div className="description-content">
+                                {activity.hourly_activity}
+                              </div>
+                              {activity.remark && (
+                                <div className="activity-remark">
+                                  <small>Remark: {activity.remark}</small>
+                                </div>
+                              )}
+                            </td>
+                            <td className="problem-cell">
+                              {activity.problem_faced ? (
+                                <div className="problem-content">
+                                  {activity.problem_faced}
+                                </div>
+                              ) : (
+                                <span className="no-problem">-</span>
+                              )}
+                            </td>
+                            <td>
+                              <span className={`resolved-badge ${isResolved ? 'resolved' : 'pending'}`}>
+                                {isResolved ? '✅ Yes' : '⏳ No'}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="activities-summary">
+                  <div className="summary-card">
+                    <h4>Activity Summary</h4>
+                    <div className="summary-grid">
+                      <div className="summary-item">
+                        <span className="summary-label">Total Reports</span>
+                        <span className="summary-value">{filteredActivities.length}</span>
+                      </div>
+                      <div className="summary-item">
+                        <span className="summary-label">Active Employees</span>
+                        <span className="summary-value">
+                          {[...new Set(filteredActivities.map(a => a.employeeName))].length}
+                        </span>
+                      </div>
+                      <div className="summary-item">
+                        <span className="summary-label">Issues Resolved</span>
+                        <span className="summary-value">
+                          {filteredActivities.filter(a => a.problem_resolved_or_not === 'yes').length}
+                        </span>
+                      </div>
+                      <div className="summary-item">
+                        <span className="summary-label">Issues Pending</span>
+                        <span className="summary-value">
+                          {filteredActivities.filter(a => a.problem_resolved_or_not === 'no').length}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 

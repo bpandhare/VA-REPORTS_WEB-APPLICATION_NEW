@@ -209,104 +209,108 @@ function DailyTargetForm() {
   )
 
   // ========== FUNCTION TO FETCH HOURLY ACHIEVEMENTS ==========
-  const fetchHourlyAchievements = async () => {
-    if (!token || !formData.reportDate || formData.locationType === 'leave') {
-      setAlert({ type: 'warning', message: 'Select a date first' });
-      return;
-    }
+ // ========== FUNCTION TO FETCH HOURLY ACHIEVEMENTS ==========
+const fetchHourlyAchievements = async () => {
+  if (!token || !formData.reportDate || formData.locationType === 'leave') {
+    setAlert({ type: 'warning', message: 'Select a date first' });
+    return;
+  }
 
-    setLoadingHourlyData(true);
-    try {
-      console.log('🔍 Fetching hourly achievements for date:', formData.reportDate);
-      
-      const hourlyEndpoint = import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/hourly-report') 
-        ?? 'http://localhost:5000/api/hourly-report';
-      
-      const response = await fetch(
-        `${hourlyEndpoint}/${formData.reportDate}`,
-        {
-          headers: { 
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
+  setLoadingHourlyData(true);
+  try {
+    console.log('🔍 Fetching hourly achievements for date:', formData.reportDate);
+    
+    const hourlyEndpoint = import.meta.env.VITE_API_URL?.replace('/api/activity', '/api/hourly-report') 
+      ?? 'http://localhost:5000/api/hourly-report';
+    
+    const response = await fetch(
+      `${hourlyEndpoint}/${formData.reportDate}`,
+      {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      );
+      }
+    );
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ Hourly reports fetched:', data);
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Hourly reports fetched:', data);
+      if (data.length > 0) {
+        // Process each hourly report
+        const achievements = data.map((report, index) => {
+          // Get achievement text - prioritize achievements over activities
+          let achievement = '';
+          
+          if (report.hourly_achieved && report.hourly_achieved.trim()) {
+            // Extract just the achievement text without the "Achieved X: " prefix
+            achievement = report.hourly_achieved.trim();
+            // Remove any "Achieved X: " prefix if present
+            achievement = achievement.replace(/^Achieved \d+:\s*/i, '');
+          } else if (report.daily_target_achieved && report.daily_target_achieved.trim()) {
+            achievement = report.daily_target_achieved.trim();
+          } else if (report.hourly_activity && report.hourly_activity.trim()) {
+            // If no achievements, fall back to activity but format it differently
+            achievement = `Activity: ${report.hourly_activity.trim()}`;
+            // Remove any "Activity X: " prefix if present
+            achievement = achievement.replace(/^Activity \d+:\s*/i, '');
+          }
+          
+          // Clean up formatting
+          achievement = achievement
+            .replace(/\n+/g, ' ')
+            .trim();
+          
+          return {
+            id: report.id || `hourly-${index}`,
+            timePeriod: report.time_period || `Session ${index + 1}`,
+            periodName: report.period_name || `Period ${index + 1}`,
+            achievement: achievement,
+            project: report.project_name || 'N/A',
+            hasData: !!achievement,
+            rawData: report
+          };
+        }).filter(item => item.hasData);
         
-        if (data.length > 0) {
-          // Process each hourly report
-          const achievements = data.map((report, index) => {
-            // Clean and format the achievement text
-            let achievement = '';
-            
-            if (report.hourly_achieved && report.hourly_achieved.trim()) {
-              achievement = report.hourly_achieved.trim();
-            } else if (report.daily_target_achieved && report.daily_target_achieved.trim()) {
-              achievement = report.daily_target_achieved.trim();
-            } else if (report.hourly_activity && report.hourly_activity.trim()) {
-              achievement = `Activity: ${report.hourly_activity.trim()}`;
-            }
-            
-            // Clean up formatting
-            achievement = achievement
-              .replace(/^Achieved \d+:\s*/i, '')
-              .replace(/^Activity \d+:\s*/i, '')
-              .replace(/\n+/g, ' ')
-              .trim();
-            
-            return {
-              id: report.id || `hourly-${index}`,
-              timePeriod: report.time_period || `Session ${index + 1}`,
-              periodName: report.period_name || `Period ${index + 1}`,
-              achievement: achievement,
-              project: report.project_name || 'N/A',
-              hasData: !!achievement,
-              rawData: report
-            };
-          }).filter(item => item.hasData);
+        setHourlyAchievements(achievements);
+        
+        // Auto-merge if enabled
+        if (autoMergeHourly && achievements.length > 0) {
+          const allAchievements = achievements
+            .map((item, idx) => `${idx + 1}. ${item.timePeriod}: ${item.achievement}`)
+            .join('\n');
           
-          setHourlyAchievements(achievements);
-          
-          // Auto-merge if enabled
-          if (autoMergeHourly && achievements.length > 0) {
-            const allAchievements = achievements
-              .map((item, idx) => `${idx + 1}. ${item.timePeriod}: ${item.achievement}`)
-              .join('\n');
-            
-            setFormData(prev => ({
-              ...prev,
-              dailyTargetAchieved: allAchievements
-            }));
-            setIsDirty(true);
-          }
-          
-          if (achievements.length > 0) {
-            setShowHourlyAchievements(true);
-            setAlert({ 
-              type: 'success', 
-              message: `Loaded ${achievements.length} hourly achievement(s)` 
-            });
-          } else {
-            setAlert({ type: 'info', message: 'No achievements found in hourly reports' });
-          }
+          setFormData(prev => ({
+            ...prev,
+            dailyTargetAchieved: allAchievements
+          }));
+          setIsDirty(true);
+        }
+        
+        if (achievements.length > 0) {
+          setShowHourlyAchievements(true);
+          setAlert({ 
+            type: 'success', 
+            message: `Loaded ${achievements.length} hourly achievement(s)` 
+          });
         } else {
-          setHourlyAchievements([]);
-          setAlert({ type: 'info', message: 'No hourly reports found for this date' });
+          setAlert({ type: 'info', message: 'No achievements found in hourly reports' });
         }
       } else {
-        setAlert({ type: 'warning', message: 'Unable to fetch hourly reports' });
+        setHourlyAchievements([]);
+        setAlert({ type: 'info', message: 'No hourly reports found for this date' });
       }
-    } catch (error) {
-      console.error('❌ Failed to fetch hourly achievements:', error);
-      setAlert({ type: 'error', message: 'Error fetching hourly data' });
-    } finally {
-      setLoadingHourlyData(false);
+    } else {
+      setAlert({ type: 'warning', message: 'Unable to fetch hourly reports' });
     }
-  };
-
+  } catch (error) {
+    console.error('❌ Failed to fetch hourly achievements:', error);
+    setAlert({ type: 'error', message: 'Error fetching hourly data' });
+  } finally {
+    setLoadingHourlyData(false);
+  }
+};
   // ========== FUNCTION TO ADD ACHIEVEMENT TO DAILY TARGET ==========
   const addAchievementToDailyTarget = (achievementText) => {
     if (!achievementText.trim()) return;
@@ -1096,6 +1100,40 @@ useEffect(() => {
     return { valid: true }
   }
 
+  // In your daily report submission function
+const handleDailyReportSubmit = async (reportData) => {
+  try {
+    // First, check if user has any rejected leaves for this date
+    const leaveStatusResponse = await fetch(`/api/leaves/status?date=${reportData.date}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    const leaveStatus = await leaveStatusResponse.json();
+    
+    // If leave was rejected, ensure we don't mark as absent
+    if (leaveStatus.status === 'rejected') {
+      // Override any leave-related flags
+      reportData.attendanceStatus = 'present';
+      reportData.isOnLeave = false;
+    }
+    
+    // Proceed with submission
+    const response = await fetch('/api/daily-reports', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(reportData)
+    });
+    
+    // Handle response...
+  } catch (error) {
+    console.error('Error submitting daily report:', error);
+  }
+};
   const reverseGeocode = async (lat, lng) => {
     try {
       setFetchingLocation(true)
